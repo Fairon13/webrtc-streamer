@@ -236,6 +236,10 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 		return this->getAudioDeviceList();
 	};
 
+    m_func["/api/getAudioPlaybackDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+        return this->getAudioPlaybackDeviceList();
+    };
+
 	m_func["/api/getIceServers"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
 		return this->getIceServers(req_info->remote_addr);
 	};
@@ -332,7 +336,7 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 	};
 	m_func["/api/help"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
 		Json::Value answer;
-		for (auto it : m_func)
+		for (const auto& it : m_func)
 		{
 			answer.append(it.first);
 		}
@@ -415,12 +419,28 @@ const Json::Value PeerConnectionManager::getAudioDeviceList()
 	Json::Value value(Json::arrayValue);
 
 	const std::list<std::string> audioCaptureDevice = CapturerFactory::GetAudioCaptureDeviceList(m_publishFilter, m_audioDeviceModule);
-	for (auto audioDevice : audioCaptureDevice)
+	for (const auto& audioDevice : audioCaptureDevice)
 	{
 		value.append(audioDevice);
 	}
 
 	return value;
+}
+
+/* ---------------------------------------------------------------------------
+**  return audio device List as JSON vector
+** -------------------------------------------------------------------------*/
+const Json::Value PeerConnectionManager::getAudioPlaybackDeviceList()
+{
+    Json::Value value(Json::arrayValue);
+
+    const std::list<std::string> audioPlaybackDevice = CapturerFactory::GetAudioPlaybackDeviceList(m_audioDeviceModule);
+    for (const auto& audioDevice : audioPlaybackDevice)
+    {
+        value.append(audioDevice);
+    }
+
+    return value;
 }
 
 /* ---------------------------------------------------------------------------

@@ -221,6 +221,26 @@ class CapturerFactory {
 		return audioList;
 	}
 
+    static const std::list<std::string> GetAudioPlaybackDeviceList(rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
+        std::list<std::string> audioList;
+
+        int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();
+        RTC_LOG(INFO) << "nb audio playback devices:" << num_audioDevices;
+
+        for (int i = 0; i < num_audioDevices; ++i) {
+            char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+            char id[webrtc::kAdmMaxGuidSize] = {0};
+
+            if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1) {
+                RTC_LOG(INFO) << "audio play device name:" << name << " id:" << id;
+                std::string devname = name;
+                audioList.push_back(devname);
+            }
+        }
+
+        return audioList;
+    };
+
 	static rtc::scoped_refptr<webrtc::AudioSourceInterface> CreateAudioSource(const std::string & audiourl, 
 							const std::map<std::string,std::string> & opts, 
 							const std::regex & publishFilter, 
@@ -229,27 +249,13 @@ class CapturerFactory {
 							rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
 		rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource;
 
-		if ( (audiourl.find("rtsp://") == 0) && (std::regex_match("rtsp://",publishFilter)) )
-		{
-	#ifdef HAVE_LIVE555
-			audioDeviceModule->Terminate();
-			audioSource = RTSPAudioSource::Create(audioDecoderfactory, audiourl, opts);
-	#endif
-		}
-		else if ( (audiourl.find("file://") == 0) && (std::regex_match("file://",publishFilter)) )
-		{
-	#ifdef HAVE_LIVE555
-			audioDeviceModule->Terminate();
-			audioSource = FileAudioSource::Create(audioDecoderfactory, audiourl, opts);
-	#endif
-		}
-		else if (std::regex_match("audiocap://",publishFilter)) 
+		if (std::regex_match("audiocap://",publishFilter))
 		{
 			audioDeviceModule->Init();
 			int16_t num_audioDevices = audioDeviceModule->RecordingDevices();
 			int16_t idx_audioDevice = -1;
 			char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-			char id[webrtc::kAdmMaxGuidSize] = {0};			
+			char id[webrtc::kAdmMaxGuidSize] = {0};
 			if (audiourl.find("audiocap://") == 0) {
 				int deviceNumber = atoi(audiourl.substr(strlen("audiocap://")).c_str());
 				RTC_LOG(INFO) << "audiourl:" << audiourl << " device number:" << deviceNumber;
@@ -282,4 +288,41 @@ class CapturerFactory {
 		}
 		return audioSource;
 	}
+
+    static rtc::scoped_refptr<webrtc::AudioSinkInterface> CreateAudioDestination(const std::string & audiourl,
+                                                                              const std::map<std::string,std::string> & opts,
+                                                                              const std::regex & publishFilter,
+                                                                              rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_connection_factory,
+                                                                              rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory,
+                                                                              rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
+        rtc::scoped_refptr<webrtc::AudioSinkInterface> audioSource;
+
+        audioDeviceModule->Init();
+        int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();
+        int16_t idx_audioDevice = -1;
+        char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+        char id[webrtc::kAdmMaxGuidSize] = {0};
+        for (int i = 0; i < num_audioDevices; ++i)
+        {
+            if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
+            {
+                RTC_LOG(INFO) << "audioplayurl:" << audiourl << " idx_audioDevice:" << i << " " << name;
+                if (audiourl == name)
+                {
+                    idx_audioDevice = i;
+                    break;
+                }
+            }
+        }
+
+        RTC_LOG(LS_ERROR) << "audioplayurl:" << audiourl << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
+        if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
+        {
+            audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
+            cricket::AudioOptions opt;
+            audioSource = peer_connection_factory->CreateAudioSource(opt);
+        }
+
+        return audioSource;
+    }
 };
