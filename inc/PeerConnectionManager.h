@@ -283,7 +283,7 @@ class PeerConnectionManager {
 		const Json::Value getIceServers(const std::string& clientIp);
 		const Json::Value getPeerConnectionList();
 		const Json::Value getStreamList();
-		const Json::Value createOffer(const std::string &peerid, const std::string & videourl, const std::string & audiourl, const std::string & options);
+		const Json::Value createOffer(const std::string &peerid, const std::string & videourl, const std::string & audiourl, const std::string & audioplay, const std::string & options);
 		const Json::Value setAnswer(const std::string &peerid, const Json::Value& jmessage);
 
 

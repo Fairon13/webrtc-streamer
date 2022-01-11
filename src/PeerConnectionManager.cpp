@@ -272,15 +272,17 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 		std::string peerid;
 		std::string url;
 		std::string audiourl;
+        std::string audioplay;
 		std::string options;
 		if (req_info->query_string)
 		{
 			CivetServer::getParam(req_info->query_string, "peerid", peerid);
 			CivetServer::getParam(req_info->query_string, "url", url);
 			CivetServer::getParam(req_info->query_string, "audiourl", audiourl);
+            CivetServer::getParam(req_info->query_string, "audioplay", audioplay);
 			CivetServer::getParam(req_info->query_string, "options", options);
 		}
-		return this->createOffer(peerid, url, audiourl, options);
+		return this->createOffer(peerid, url, audiourl, audioplay, options);
 	};
 	m_func["/api/setAnswer"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
 		std::string peerid;
@@ -532,9 +534,9 @@ const Json::Value PeerConnectionManager::addIceCandidate(const std::string &peer
 /* ---------------------------------------------------------------------------
 ** create an offer for a call
 ** -------------------------------------------------------------------------*/
-const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &options)
+const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &audioplay, const std::string &options)
 {
-	RTC_LOG(INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " options:" << options;
+	RTC_LOG(INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " audio play:" << audioplay << " options:" << options;
 	Json::Value offer;
 
 	PeerConnectionObserver *peerConnectionObserver = this->CreatePeerConnection(peerid);
@@ -551,6 +553,9 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 			RTC_LOG(WARNING) << "Can't add stream";
 		}
 
+        if(!audioplay.empty())
+            CapturerFactory::SetAudioPlaybackDevice(audioplay, m_audioDeviceModule);
+
 		// register peerid
 		{
 			std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
@@ -560,7 +565,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 		// ask to create offer
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
 		rtcoptions.offer_to_receive_video = 0;
-		rtcoptions.offer_to_receive_audio = 0;
+		rtcoptions.offer_to_receive_audio = 1;
 		std::promise<const webrtc::SessionDescriptionInterface *> promise;
 		peerConnection->CreateOffer(CreateSessionDescriptionObserver::Create(peerConnection, promise), rtcoptions);
 
