@@ -115,7 +115,7 @@ IceServer getIceServerFromUrl(const std::string &url, const std::string &clientI
 			uri = uri.substr(pos + 1);
 		}
 
-		if ((uri.find("0.0.0.0:") == 0) && (clientIp.empty() == false))
+		if ((uri.find("0.0.0.0:") == 0) && !clientIp.empty())
 		{
 			// answer with ip that is on same network as client
 			std::string clienturl = getServerIpFromClientIp(inet_addr(clientIp.c_str()));
@@ -564,7 +564,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 
 		// ask to create offer
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
-		rtcoptions.offer_to_receive_video = 0;
+		rtcoptions.offer_to_receive_video = 1;
 		rtcoptions.offer_to_receive_audio = 1;
 		std::promise<const webrtc::SessionDescriptionInterface *> promise;
 		peerConnection->CreateOffer(CreateSessionDescriptionObserver::Create(peerConnection, promise), rtcoptions);
@@ -987,6 +987,8 @@ PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeer
 		server.password = srv.pass;
 		config.servers.push_back(server);
 	}
+
+    config.type = webrtc::PeerConnectionInterface::IceTransportsType::kRelay;
 
 	// Use example From https://soru.site/questions/51578447/api-c-webrtcyi-kullanarak-peerconnection-ve-ucretsiz-baglant-noktasn-serbest-nasl
 	int minPort = 0;
