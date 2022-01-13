@@ -66,7 +66,7 @@ class CapturerFactory {
 			if (info)
 			{
 				int num_videoDevices = info->NumberOfDevices();
-				RTC_LOG(INFO) << "nb video devices:" << num_videoDevices;
+				RTC_LOG(LS_INFO) << "nb video devices:" << num_videoDevices;
 				for (int i = 0; i < num_videoDevices; ++i)
 				{
 					const uint32_t kSize = 256;
@@ -74,7 +74,7 @@ class CapturerFactory {
 					char id[kSize] = {0};
 					if (info->GetDeviceName(i, name, kSize, id, kSize) != -1)
 					{
-						RTC_LOG(INFO) << "video device name:" << name << " id:" << id;
+						RTC_LOG(LS_INFO) << "video device name:" << name << " id:" << id;
 						std::string devname;
 						auto it = std::find(videoDeviceList.begin(), videoDeviceList.end(), name);
 						if (it == videoDeviceList.end()) {
@@ -92,14 +92,14 @@ class CapturerFactory {
 #ifdef HAVE_V4L2	
 			DIR *dir = opendir("/dev");
 			if (dir != nullptr) {
-				struct dirent* entry = NULL;
-				while (entry = readdir(dir)) {
+				struct dirent* entry = nullptr;
+				while ((entry = readdir(dir))!= nullptr) {
 					if (strncmp(entry->d_name, "video", 5) == 0) {
 						std::string device("/dev/");
 						device.append(entry->d_name);
 						V4L2DeviceParameters param(device.c_str(), V4L2_PIX_FMT_H264, 0, 0, 0);
 						V4l2Capture* capture = V4l2Capture::create(param);
-						if (capture != NULL) {
+						if (capture != nullptr) {
 							delete capture;
 							std::string v4l2url("v4l2://");
 							v4l2url.append(device);
@@ -125,7 +125,7 @@ class CapturerFactory {
 			if (capturer) {
 				webrtc::DesktopCapturer::SourceList sourceList;
 				if (capturer->GetSourceList(&sourceList)) {
-					for (auto source : sourceList) {
+					for (const auto& source : sourceList) {
 						std::ostringstream os;
 						os << "window://" << source.title;
 						videoList.push_back(os.str());
@@ -138,7 +138,7 @@ class CapturerFactory {
 			if (capturer) {
 				webrtc::DesktopCapturer::SourceList sourceList;
 				if (capturer->GetSourceList(&sourceList)) {
-					for (auto source : sourceList) {
+					for (const auto& source : sourceList) {
 						std::ostringstream os;
 						os << "screen://" << source.id;
 						videoList.push_back(os.str());
@@ -197,7 +197,7 @@ class CapturerFactory {
 		if (std::regex_match("audiocap://", publishFilter))
 		{
 			int16_t num_audioDevices = audioDeviceModule->RecordingDevices();
-			RTC_LOG(INFO) << "nb audio devices:" << num_audioDevices;
+			RTC_LOG(LS_INFO) << "nb audio devices:" << num_audioDevices;
 
 			for (int i = 0; i < num_audioDevices; ++i)
 			{
@@ -205,7 +205,7 @@ class CapturerFactory {
 				char id[webrtc::kAdmMaxGuidSize] = {0};
 				if (audioDeviceModule->RecordingDeviceName(i, name, id) != -1)
 				{
-					RTC_LOG(INFO) << "audio device name:" << name << " id:" << id;
+					RTC_LOG(LS_INFO) << "audio device name:" << name << " id:" << id;
 					std::string devname;
 					auto it = std::find(audioList.begin(), audioList.end(), name);
 					if (it == audioList.end()) {
@@ -225,14 +225,14 @@ class CapturerFactory {
         std::list<std::string> audioList;
 
         int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();
-        RTC_LOG(INFO) << "nb audio playback devices:" << num_audioDevices;
+        RTC_LOG(LS_INFO) << "nb audio playback devices:" << num_audioDevices;
 
         for (int i = 0; i < num_audioDevices; ++i) {
             char name[webrtc::kAdmMaxDeviceNameSize] = {0};
             char id[webrtc::kAdmMaxGuidSize] = {0};
 
             if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1) {
-                RTC_LOG(INFO) << "audio play device name:" << name << " id:" << id;
+                RTC_LOG(LS_INFO) << "audio play device name:" << name << " id:" << id;
                 std::string devname = name;
                 audioList.push_back(devname);
             }
@@ -272,7 +272,7 @@ class CapturerFactory {
 			char id[webrtc::kAdmMaxGuidSize] = {0};
 			if (audiourl.find("audiocap://") == 0) {
 				int deviceNumber = atoi(audiourl.substr(strlen("audiocap://")).c_str());
-				RTC_LOG(INFO) << "audiourl:" << audiourl << " device number:" << deviceNumber;
+				RTC_LOG(LS_INFO) << "audiourl:" << audiourl << " device number:" << deviceNumber;
 				if (audioDeviceModule->RecordingDeviceName(deviceNumber, name, id) != -1)
 				{
 					idx_audioDevice = deviceNumber;
@@ -283,7 +283,7 @@ class CapturerFactory {
 				{
 					if (audioDeviceModule->RecordingDeviceName(i, name, id) != -1)
 					{
-						RTC_LOG(INFO) << "audiourl:" << audiourl << " idx_audioDevice:" << i << " " << name;
+						RTC_LOG(LS_INFO) << "audiourl:" << audiourl << " idx_audioDevice:" << i << " " << name;
 						if (audiourl == name)
 						{
 							idx_audioDevice = i;
@@ -313,7 +313,7 @@ class CapturerFactory {
         {
             if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
             {
-                RTC_LOG(INFO) << "audioplay:" << audioPlay << " idx_audioDevice:" << i << " " << name;
+                RTC_LOG(LS_INFO) << "audioplay:" << audioPlay << " idx_audioDevice:" << i << " " << name;
                 if (audioPlay == name)
                 {
                     idx_audioDevice = i;
@@ -347,7 +347,7 @@ class CapturerFactory {
         {
             if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
             {
-                RTC_LOG(INFO) << "audioplayurl:" << audiourl << " idx_audioDevice:" << i << " " << name;
+                RTC_LOG(LS_INFO) << "audioplayurl:" << audiourl << " idx_audioDevice:" << i << " " << name;
                 if (audiourl == name)
                 {
                     idx_audioDevice = i;

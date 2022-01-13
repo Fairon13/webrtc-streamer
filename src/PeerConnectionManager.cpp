@@ -178,11 +178,11 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
 	// try to init audio
 	if (audioDeviceModule.get()) {
 		if (audioDeviceModule->Init() != 0) {
-			RTC_LOG(WARNING) << "audio init fails -> disable audio capture";
+			RTC_LOG(LS_WARNING) << "audio init fails -> disable audio capture";
 			audioDeviceModule = new webrtc::FakeAudioDeviceModule();
 		}
 	} else {
-		RTC_LOG(WARNING) << "no audio device -> disable audio capture";
+		RTC_LOG(LS_WARNING) << "no audio device -> disable audio capture";
 		audioDeviceModule = new webrtc::FakeAudioDeviceModule();
 	}
 	mediaDependencies.adm = std::move(audioDeviceModule);
@@ -222,6 +222,13 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 
 	// Set the webrtc port range
 	m_webrtcPortRange = webrtcUdpPortRange;
+
+    // init ADM
+    m_audioDeviceModule->Init();
+    m_audioDeviceModule->SetPlayoutDevice(0);
+    m_audioDeviceModule->StartPlayout();
+    m_audioDeviceModule->SetRecordingDevice(0);
+    m_audioDeviceModule->StartRecording();
 
 	// register api in http server
 	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
@@ -457,7 +464,7 @@ const Json::Value PeerConnectionManager::getIceServers(const std::string &client
 		Json::Value server;
 		Json::Value urlList(Json::arrayValue);
 		IceServer srv = getIceServerFromUrl(iceServer, clientIp);
-		RTC_LOG(INFO) << "ICE URL:" << srv.url;
+		RTC_LOG(LS_INFO) << "ICE URL:" << srv.url;
 		urlList.append(srv.url);
 		server["urls"] = urlList;
 		if (srv.user.length() > 0)
@@ -497,14 +504,14 @@ const Json::Value PeerConnectionManager::addIceCandidate(const std::string &peer
 	std::string sdp;
 	if (!rtc::GetStringFromJsonObject(jmessage, kCandidateSdpMidName, &sdp_mid) || !rtc::GetIntFromJsonObject(jmessage, kCandidateSdpMlineIndexName, &sdp_mlineindex) || !rtc::GetStringFromJsonObject(jmessage, kCandidateSdpName, &sdp))
 	{
-		RTC_LOG(WARNING) << "Can't parse received message:" << jmessage;
+		RTC_LOG(LS_WARNING) << "Can't parse received message:" << jmessage;
 	}
 	else
 	{
 		std::unique_ptr<webrtc::IceCandidateInterface> candidate(webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, sdp, NULL));
 		if (!candidate.get())
 		{
-			RTC_LOG(WARNING) << "Can't parse received candidate message.";
+			RTC_LOG(LS_WARNING) << "Can't parse received candidate message.";
 		}
 		else
 		{
@@ -514,7 +521,7 @@ const Json::Value PeerConnectionManager::addIceCandidate(const std::string &peer
 			{
 				if (!peerConnection->AddIceCandidate(candidate.get()))
 				{
-					RTC_LOG(WARNING) << "Failed to apply the received candidate";
+					RTC_LOG(LS_WARNING) << "Failed to apply the received candidate";
 				}
 				else
 				{
@@ -536,21 +543,21 @@ const Json::Value PeerConnectionManager::addIceCandidate(const std::string &peer
 ** -------------------------------------------------------------------------*/
 const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &audioplay, const std::string &options)
 {
-	RTC_LOG(INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " audio play:" << audioplay << " options:" << options;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " audio play:" << audioplay << " options:" << options;
 	Json::Value offer;
 
 	PeerConnectionObserver *peerConnectionObserver = this->CreatePeerConnection(peerid);
 	if (!peerConnectionObserver)
 	{
-		RTC_LOG(LERROR) << "Failed to initialize PeerConnection";
+		RTC_LOG(LS_ERROR) << "Failed to initialize PeerConnection";
 	}
 	else
 	{
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
 
-		if (!this->AddStreams(peerConnection, videourl, audiourl, options))
+		if (!this->AddStreams(peerid, peerConnection, videourl, audiourl, options))
 		{
-			RTC_LOG(WARNING) << "Can't add stream";
+			RTC_LOG(LS_WARNING) << "Can't add stream";
 		}
 
         if(!audioplay.empty())
@@ -585,12 +592,12 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 			}
 			else
 			{
-				RTC_LOG(LERROR) << "Failed to create offer";
+				RTC_LOG(LS_ERROR) << "Failed to create offer";
 			}
 		}
 		else
 		{
-			RTC_LOG(LERROR) << "Failed to create offer";
+			RTC_LOG(LS_ERROR) << "Failed to create offer";
 		}
 	}
 	return offer;
@@ -601,14 +608,14 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 ** -------------------------------------------------------------------------*/
 const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, const Json::Value &jmessage)
 {
-	RTC_LOG(INFO) << jmessage;
+	RTC_LOG(LS_INFO) << jmessage;
 	Json::Value answer;
 
 	std::string type;
 	std::string sdp;
 	if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
 	{
-		RTC_LOG(WARNING) << "Can't parse received message.";
+		RTC_LOG(LS_WARNING) << "Can't parse received message.";
 		answer["error"] = "Can't parse received message.";
 	}
 	else
@@ -616,12 +623,12 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 		webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, NULL));
 		if (!session_description)
 		{
-			RTC_LOG(WARNING) << "Can't parse received session description message.";
+			RTC_LOG(LS_WARNING) << "Can't parse received session description message.";
 			answer["error"] = "Can't parse received session description message.";
 		}
 		else
 		{
-			RTC_LOG(LERROR) << "From peerid:" << peerid << " received session description :" << session_description->type();
+			RTC_LOG(LS_ERROR) << "From peerid:" << peerid << " received session description :" << session_description->type();
 
 			std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
 			rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = this->getPeerConnection(peerid);
@@ -633,7 +640,7 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 				std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
 				if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
 				{
-					RTC_LOG(INFO) << "remote_description is ready";
+					RTC_LOG(LS_INFO) << "remote_description is ready";
 					const webrtc::SessionDescriptionInterface *desc = remotefuture.get();
 					if (desc)
 					{
@@ -649,7 +656,7 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 				else
 				{
 					peerConnection->SetRemoteDescription(NULL,NULL);
-					RTC_LOG(WARNING) << "Can't get remote description.";
+					RTC_LOG(LS_WARNING) << "Can't get remote description.";
 					answer["error"] = "Can't get remote description.";
 				}
 			}
@@ -663,7 +670,7 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 ** -------------------------------------------------------------------------*/
 const Json::Value PeerConnectionManager::call(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &options, const Json::Value &jmessage)
 {
-	RTC_LOG(INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " options:" << options;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " options:" << options;
 
 	Json::Value answer;
 
@@ -672,24 +679,24 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 
 	if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
 	{
-		RTC_LOG(WARNING) << "Can't parse received message.";
+		RTC_LOG(LS_WARNING) << "Can't parse received message.";
 	}
 	else
 	{
 		PeerConnectionObserver *peerConnectionObserver = this->CreatePeerConnection(peerid);
 		if (!peerConnectionObserver)
 		{
-			RTC_LOG(LERROR) << "Failed to initialize PeerConnectionObserver";
+			RTC_LOG(LS_ERROR) << "Failed to initialize PeerConnectionObserver";
 		}
 		else if (!peerConnectionObserver->getPeerConnection().get())
 		{
-			RTC_LOG(LERROR) << "Failed to initialize PeerConnection";
+			RTC_LOG(LS_ERROR) << "Failed to initialize PeerConnection";
 			delete peerConnectionObserver;
 		}
 		else
 		{
 			rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
-			RTC_LOG(INFO) << "nbStreams local:" << peerConnection->GetSenders().size() << " remote:" << peerConnection->GetReceivers().size() << " localDescription:" << peerConnection->local_description();
+			RTC_LOG(LS_INFO) << "nbStreams local:" << peerConnection->GetSenders().size() << " remote:" << peerConnection->GetReceivers().size() << " localDescription:" << peerConnection->local_description();
 
 			// register peerid
 			{
@@ -701,7 +708,7 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 			webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, NULL));
 			if (!session_description)
 			{
-				RTC_LOG(WARNING) << "Can't parse received session description message.";
+				RTC_LOG(LS_WARNING) << "Can't parse received session description message.";
 			}
 			else
 			{
@@ -711,19 +718,19 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 				std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
 				if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
 				{
-					RTC_LOG(INFO) << "remote_description is ready";
+					RTC_LOG(LS_INFO) << "remote_description is ready";
 				}
 				else
 				{
 					peerConnection->SetRemoteDescription(NULL, NULL);
-					RTC_LOG(WARNING) << "remote_description is NULL";
+					RTC_LOG(LS_WARNING) << "remote_description is NULL";
 				}
 			}
 
 			// add local stream
-			if (!this->AddStreams(peerConnection, videourl, audiourl, options))
+			if (!this->AddStreams(peerid, peerConnection, videourl, audiourl, options))
 			{
-				RTC_LOG(WARNING) << "Can't add stream";
+				RTC_LOG(LS_WARNING) << "Can't add stream";
 			}
 
 			// create answer
@@ -747,12 +754,12 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 				}
 				else
 				{
-					RTC_LOG(LERROR) << "Failed to create answer";
+					RTC_LOG(LS_ERROR) << "Failed to create answer";
 				}
 			}
 			else
 			{
-				RTC_LOG(LERROR) << "Failed to create answer";
+				RTC_LOG(LS_ERROR) << "Failed to create answer";
 			}
 		}
 	}
@@ -787,7 +794,7 @@ bool PeerConnectionManager::streamStillUsed(const std::string &streamLabel)
 const Json::Value PeerConnectionManager::hangUp(const std::string &peerid)
 {
 	bool result = false;
-	RTC_LOG(INFO) << __FUNCTION__ << " " << peerid;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " " << peerid;
 
 	PeerConnectionObserver *pcObserver = NULL;
 	{
@@ -837,7 +844,7 @@ const Json::Value PeerConnectionManager::hangUp(const std::string &peerid)
 	{
 		answer = result;
 	}
-	RTC_LOG(INFO) << __FUNCTION__ << " " << peerid << " result:" << result;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " " << peerid << " result:" << result;
 	return answer;
 }
 
@@ -846,7 +853,7 @@ const Json::Value PeerConnectionManager::hangUp(const std::string &peerid)
 ** -------------------------------------------------------------------------*/
 const Json::Value PeerConnectionManager::getIceCandidateList(const std::string &peerid)
 {
-	RTC_LOG(INFO) << __FUNCTION__;
+	RTC_LOG(LS_INFO) << __FUNCTION__;
 
 	Json::Value value;
 	std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
@@ -1001,13 +1008,13 @@ PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeer
 			maxPort = std::stoi(port);
 		}
 	}
-	RTC_LOG(INFO) << __FUNCTION__ << "CreatePeerConnection webrtcPortRange:" << minPort << ":" << maxPort;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << "CreatePeerConnection webrtcPortRange:" << minPort << ":" << maxPort;
 
-	RTC_LOG(INFO) << __FUNCTION__ << "CreatePeerConnection peerid:" << peerid;
+	RTC_LOG(LS_INFO) << __FUNCTION__ << "CreatePeerConnection peerid:" << peerid;
 	PeerConnectionObserver *obs = new PeerConnectionObserver(this, peerid, config, minPort, maxPort);
 	if (!obs)
 	{
-		RTC_LOG(LERROR) << __FUNCTION__ << "CreatePeerConnection failed";
+		RTC_LOG(LS_ERROR) << __FUNCTION__ << "CreatePeerConnection failed";
 	}
 	return obs;
 }
@@ -1018,7 +1025,7 @@ PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeer
 
 rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> PeerConnectionManager::CreateVideoSource(const std::string &videourl, const std::map<std::string, std::string> &opts)
 {
-	RTC_LOG(INFO) << "videourl:" << videourl;
+	RTC_LOG(LS_INFO) << "videourl:" << videourl;
 
 	std::string video = videourl;
 	if (m_config.isMember(video)) {
@@ -1030,7 +1037,7 @@ rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> PeerConnectionManager::Cre
 
 rtc::scoped_refptr<webrtc::AudioSourceInterface> PeerConnectionManager::CreateAudioSource(const std::string &audiourl, const std::map<std::string, std::string> &opts)
 {
-	RTC_LOG(INFO) << "audiourl:" << audiourl;
+	RTC_LOG(LS_INFO) << "audiourl:" << audiourl;
 
 	std::string audio = audiourl;
 	if (m_config.isMember(audio)) {
@@ -1065,7 +1072,7 @@ const std::string PeerConnectionManager::sanitizeLabel(const std::string &label)
 /* ---------------------------------------------------------------------------
 **  Add a stream to a PeerConnection
 ** -------------------------------------------------------------------------*/
-bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_connection, const std::string &videourl, const std::string &audiourl, const std::string &options)
+bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerConnectionInterface *peer_connection, const std::string &videourl, const std::string &audiourl, const std::string &options)
 {
 	bool ret = false;
 
@@ -1103,6 +1110,9 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 		audio = videourl;
 	}
 
+    if(video.empty() && audio.empty())
+        return ret;
+
 	// set bandwidth
 	if (opts.find("bitrate") != opts.end())
 	{
@@ -1114,7 +1124,7 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 		bitrateParam.max_bitrate_bps = absl::optional<int>(bitrate * 2);
 		peer_connection->SetBitrate(bitrateParam);
 
-		RTC_LOG(WARNING) << "set bitrate:" << bitrate;
+		RTC_LOG(LS_WARNING) << "set bitrate:" << bitrate;
 	}
 
 	// keep capturer options (to improve!!!)
@@ -1132,9 +1142,10 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 	}
 
 	// compute stream label removing space because SDP use label
-	std::string streamLabel = this->sanitizeLabel(videourl + "|" + audiourl + "|" + optcapturer);
+	//std::string streamLabel = this->sanitizeLabel(videourl + "|" + audiourl + "|" + optcapturer);
+    std::string streamLabel = this->sanitizeLabel("media_stream_" + peerid);
 
-	bool existingStream = false;
+    bool existingStream = false;
 	{
 		std::lock_guard<std::mutex> mlock(m_streamMapMutex);
 		existingStream = (m_stream_map.find(streamLabel) != m_stream_map.end());
@@ -1145,7 +1156,7 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 		// need to create the stream
 		rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(this->CreateVideoSource(video, opts));
 		rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource(this->CreateAudioSource(audio, opts));
-		RTC_LOG(INFO) << "Adding Stream to map";
+		RTC_LOG(LS_INFO) << "Adding Stream to map";
 		std::lock_guard<std::mutex> mlock(m_streamMapMutex);
 		m_stream_map[streamLabel] = std::make_pair(videoSource, audioSource);
 	}
@@ -1172,7 +1183,7 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 					}
 					else
 					{
-						RTC_LOG(INFO) << "VideoTrack added to PeerConnection";
+						RTC_LOG(LS_INFO) << "VideoTrack added to PeerConnection";
 						ret = true;
 					}					
 				}
@@ -1191,7 +1202,7 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 					} 
 					else
 					{
-						RTC_LOG(INFO) << "AudioTrack added to PeerConnection";
+						RTC_LOG(LS_INFO) << "AudioTrack added to PeerConnection";
 						ret = true;
 					}
 				}
@@ -1210,7 +1221,7 @@ bool PeerConnectionManager::AddStreams(webrtc::PeerConnectionInterface *peer_con
 ** -------------------------------------------------------------------------*/
 void PeerConnectionManager::PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface *candidate)
 {
-	RTC_LOG(INFO) << __FUNCTION__ << " " << candidate->sdp_mline_index();
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " " << candidate->sdp_mline_index();
 
 	std::string sdp;
 	if (!candidate->ToString(&sdp))
@@ -1219,7 +1230,7 @@ void PeerConnectionManager::PeerConnectionObserver::OnIceCandidate(const webrtc:
 	}
 	else
 	{
-		RTC_LOG(INFO) << sdp;
+		RTC_LOG(LS_INFO) << sdp;
 
 		Json::Value jmessage;
 		jmessage[kCandidateSdpMidName] = candidate->sdp_mid();

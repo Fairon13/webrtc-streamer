@@ -210,23 +210,28 @@ class PeerConnectionManager {
 			rtc::scoped_refptr<webrtc::PeerConnectionInterface> getPeerConnection() { return m_pc; };
 
 			// PeerConnectionObserver interface
+            virtual void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
+                auto track = transceiver->receiver()->track();
+                RTC_LOG(LS_ERROR) << "onTrack dir: " << transceiver->direction() << " type: " << transceiver->media_type() <<
+                " kind: " << track->kind() << " state: " << track->state() << " enabled: " << track->enabled();
+            }
+            /*
 			virtual void OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)    {
 				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__ << " nb video tracks:" << stream->GetVideoTracks().size();
 				webrtc::VideoTrackVector videoTracks = stream->GetVideoTracks();
-				if (videoTracks.size()>0) {					
+				if (videoTracks.size()>0) {
 					m_videosink.reset(new VideoSink(videoTracks.at(0)));
 				}
 
                 RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__ << " nb audio tracks:" << stream->GetAudioTracks().size();
                 webrtc::AudioTrackVector audioTracks = stream->GetAudioTracks();
-
-
-
+                audioTracks[0]->set_enabled(true);
 			}
 			virtual void OnRemoveStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
 				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__;
 				m_videosink.reset();
 			}
+            */
 			virtual void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel) {
 				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__;
 				m_remoteChannel = new DataChannelObserver(channel);
@@ -295,7 +300,7 @@ class PeerConnectionManager {
 
 	protected:
 		PeerConnectionObserver*                               CreatePeerConnection(const std::string& peerid);
-		bool                                                  AddStreams(webrtc::PeerConnectionInterface* peer_connection, const std::string & videourl, const std::string & audiourl, const std::string & options);
+		bool                                                  AddStreams(const std::string& peerid, webrtc::PeerConnectionInterface* peer_connection, const std::string & videourl, const std::string & audiourl, const std::string & options);
 		rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> CreateVideoSource(const std::string & videourl, const std::map<std::string,std::string> & opts);
 		rtc::scoped_refptr<webrtc::AudioSourceInterface>      CreateAudioSource(const std::string & audiourl, const std::map<std::string,std::string> & opts);
 		bool                                                  streamStillUsed(const std::string & streamLabel);
