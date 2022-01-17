@@ -265,7 +265,7 @@ class CapturerFactory {
 		}
 		else if (std::regex_match("audiocap://",publishFilter))
 		{
-			audioDeviceModule->Init();
+			//audioDeviceModule->Init();
 			int16_t num_audioDevices = audioDeviceModule->RecordingDevices();
 			int16_t idx_audioDevice = -1;
 			char name[webrtc::kAdmMaxDeviceNameSize] = {0};
@@ -295,7 +295,7 @@ class CapturerFactory {
 			RTC_LOG(LS_ERROR) << "audiourl:" << audiourl << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
 			if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
 			{
-				audioDeviceModule->SetRecordingDevice(idx_audioDevice);
+				//audioDeviceModule->SetRecordingDevice(idx_audioDevice);
 				cricket::AudioOptions opt;
 				audioSource = peer_connection_factory->CreateAudioSource(opt);
 			}
@@ -325,46 +325,7 @@ class CapturerFactory {
         RTC_LOG(LS_ERROR) << "audioplay:" << audioPlay << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
         if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
         {
-            audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
+            //audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
         }
     }
-
-    /*
-    static rtc::scoped_refptr<webrtc::AudioSinkInterface> CreateAudioDestination(const std::string & audiourl,
-                                                                              const std::map<std::string,std::string> & opts,
-                                                                              const std::regex & publishFilter,
-                                                                              rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_connection_factory,
-                                                                              rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory,
-                                                                              rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
-        rtc::scoped_refptr<webrtc::AudioSinkInterface> audioSource;
-
-        audioDeviceModule->Init();
-        int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();
-        int16_t idx_audioDevice = -1;
-        char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-        char id[webrtc::kAdmMaxGuidSize] = {0};
-        for (int i = 0; i < num_audioDevices; ++i)
-        {
-            if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
-            {
-                RTC_LOG(LS_INFO) << "audioplayurl:" << audiourl << " idx_audioDevice:" << i << " " << name;
-                if (audiourl == name)
-                {
-                    idx_audioDevice = i;
-                    break;
-                }
-            }
-        }
-
-        RTC_LOG(LS_ERROR) << "audioplayurl:" << audiourl << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
-        if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
-        {
-            audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
-            cricket::AudioOptions opt;
-            audioSource = peer_connection_factory->CreateAudioSource(opt);
-        }
-
-        return audioSource;
-    }
-    */
 };

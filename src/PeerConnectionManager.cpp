@@ -226,9 +226,7 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
     // init ADM
     m_audioDeviceModule->Init();
     m_audioDeviceModule->SetPlayoutDevice(0);
-    m_audioDeviceModule->StartPlayout();
     m_audioDeviceModule->SetRecordingDevice(0);
-    m_audioDeviceModule->StartRecording();
 
 	// register api in http server
 	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
@@ -560,9 +558,6 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 			RTC_LOG(LS_WARNING) << "Can't add stream";
 		}
 
-        if(!audioplay.empty())
-            CapturerFactory::SetAudioPlaybackDevice(audioplay, m_audioDeviceModule);
-
 		// register peerid
 		{
 			std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
@@ -570,9 +565,15 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 		}
 
 		// ask to create offer
-		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
-		rtcoptions.offer_to_receive_video = 1;
-		rtcoptions.offer_to_receive_audio = 1;
+        if(!audioplay.empty()) {
+            std::string streamLabel = this->sanitizeLabel("audio_stream_" + peerid);
+            webrtc::RtpTransceiverInit init;
+            init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
+            init.stream_ids = {streamLabel};
+            peerConnection->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, init);
+        }
+
+        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
 		std::promise<const webrtc::SessionDescriptionInterface *> promise;
 		peerConnection->CreateOffer(CreateSessionDescriptionObserver::Create(peerConnection, promise), rtcoptions);
 
