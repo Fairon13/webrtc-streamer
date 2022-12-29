@@ -248,8 +248,8 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 		return std::make_tuple(200, std::map<std::string,std::string>(),this->getAudioDeviceList());
 	};
 
-    m_func["/api/getAudioPlaybackDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-        return this->getAudioPlaybackDeviceList();
+    m_func["/api/getAudioPlaybackDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+        return std::make_tuple(200, std::map<std::string,std::string>(),this->getAudioPlaybackDeviceList());
     };
 
 	m_func["/api/getIceServers"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
@@ -673,7 +673,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 	{
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
 
-		if (!this->AddStreams(peerConnection.get(), videourl, audiourl, options))
+		if (!this->AddStreams(peerid, peerConnection.get(), videourl, audiourl, options))
 		{
 			RTC_LOG(LS_WARNING) << "Can't add stream";
 		}
@@ -832,7 +832,7 @@ std::unique_ptr<webrtc::SessionDescriptionInterface> PeerConnectionManager::getA
 			}
 
 			// add local stream
-			if (!this->AddStreams(peerConnection.get(), videourl, audiourl, options))
+			if (!this->AddStreams(peerid, peerConnection.get(), videourl, audiourl, options))
 			{
 				RTC_LOG(LS_WARNING) << "Can't add stream";
 			}
