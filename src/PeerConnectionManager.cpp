@@ -25,9 +25,6 @@
 #include "V4l2AlsaMap.h"
 #include "CapturerFactory.h"
 
-#include "VideoScaler.h"
-#include "VideoFilter.h"
-
 #include "NullEncoder.h"
 #include "NullDecoder.h"
 
@@ -162,12 +159,12 @@ std::unique_ptr<webrtc::VideoDecoderFactory> CreateDecoderFactory(bool nullCodec
 	return factory;
 }
 
-webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencies(rtc::scoped_refptr<webrtc::AudioDeviceModule> audioDeviceModule, rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory, bool useNullCodec)
+webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencies(rtc::Thread* signalingThread, rtc::Thread* workerThread, rtc::scoped_refptr<webrtc::AudioDeviceModule> audioDeviceModule, rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory, bool useNullCodec)
 {
 	webrtc::PeerConnectionFactoryDependencies dependencies;
 	dependencies.network_thread = NULL;
-	dependencies.worker_thread = rtc::Thread::Current();
-	dependencies.signaling_thread = NULL;
+	dependencies.worker_thread = workerThread;
+	dependencies.signaling_thread = signalingThread;
 	dependencies.call_factory = webrtc::CreateCallFactory();
 	dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
 	dependencies.event_log_factory = absl::make_unique<webrtc::RtcEventLogFactory>(dependencies.task_queue_factory.get());
@@ -202,21 +199,31 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
 /* ---------------------------------------------------------------------------
 **  Constructor
 ** -------------------------------------------------------------------------*/
-PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceServerList, const Json::Value & config, const webrtc::AudioDeviceModule::AudioLayer audioLayer, const std::string &publishFilter, const std::string & webrtcUdpPortRange, bool useNullCodec, bool usePlanB)
-	: m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory()), m_task_queue_factory(webrtc::CreateDefaultTaskQueueFactory()),
-#ifdef HAVE_SOUND
-	  m_audioDeviceModule(webrtc::AudioDeviceModule::Create(audioLayer, m_task_queue_factory.get())),
-#else
-	  m_audioDeviceModule(new webrtc::FakeAudioDeviceModule()),
-#endif
+PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceServerList, const Json::Value & config, const webrtc::AudioDeviceModule::AudioLayer audioLayer, const std::string &publishFilter, const std::string & webrtcUdpPortRange, bool useNullCodec, bool usePlanB, int maxpc)
+	: m_signalingThread(rtc::Thread::Create()),
+	  m_workerThread(rtc::Thread::Create()),
+	  m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory()), 
+	  m_task_queue_factory(webrtc::CreateDefaultTaskQueueFactory()),
   	  m_video_decoder_factory(CreateDecoderFactory(useNullCodec)),
-	  m_peer_connection_factory(webrtc::CreateModularPeerConnectionFactory(CreatePeerConnectionFactoryDependencies(m_audioDeviceModule, m_audioDecoderfactory, useNullCodec))), 
 	  m_iceServerList(iceServerList), 
 	  m_config(config), 
 	  m_publishFilter(publishFilter), 
+	  m_webrtcPortRange(webrtcUdpPortRange),
 	  m_useNullCodec(useNullCodec), 
-	  m_usePlanB(usePlanB)
+	  m_usePlanB(usePlanB),
+	  m_maxpc(maxpc)
 {
+	m_workerThread->SetName("worker", NULL);
+	m_workerThread->Start();
+
+	m_workerThread->BlockingCall([this, audioLayer] {
+		this->createAudioModule(audioLayer);
+    });
+		
+	m_signalingThread->SetName("signaling", NULL);
+	m_signalingThread->Start();
+	m_peer_connection_factory = webrtc::CreateModularPeerConnectionFactory(CreatePeerConnectionFactoryDependencies(m_signalingThread.get(), m_workerThread.get(), m_audioDeviceModule, m_audioDecoderfactory, useNullCodec));
+
 	// build video audio map
 	m_videoaudiomap = getV4l2AlsaMap();
 
@@ -229,27 +236,27 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
     m_audioDeviceModule->SetRecordingDevice(0);
 
 	// register api in http server
-	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getMediaList();
+	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getMediaList());
 	};
 
-	m_func["/api/getVideoDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getVideoDeviceList();
+	m_func["/api/getVideoDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getVideoDeviceList());
 	};
 
-	m_func["/api/getAudioDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getAudioDeviceList();
+	m_func["/api/getAudioDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getAudioDeviceList());
 	};
 
     m_func["/api/getAudioPlaybackDeviceList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
         return this->getAudioPlaybackDeviceList();
     };
 
-	m_func["/api/getIceServers"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getIceServers(req_info->remote_addr);
+	m_func["/api/getIceServers"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getIceServers(req_info->remote_addr));
 	};
 
-	m_func["/api/call"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/call"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {	
 		std::string peerid;
 		std::string url;
 		std::string audiourl;
@@ -261,19 +268,23 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 			CivetServer::getParam(req_info->query_string, "audiourl", audiourl);
 			CivetServer::getParam(req_info->query_string, "options", options);
 		}
-		return this->call(peerid, url, audiourl, options, in);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->call(peerid, url, audiourl, options, in));
 	};
 
-	m_func["/api/hangup"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/whip"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return this->whip(req_info, in);	
+	};
+
+	m_func["/api/hangup"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string peerid;
 		if (req_info->query_string)
 		{
 			CivetServer::getParam(req_info->query_string, "peerid", peerid);
 		}
-		return this->hangUp(peerid);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->hangUp(peerid));
 	};
 
-	m_func["/api/createOffer"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/createOffer"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string peerid;
 		std::string url;
 		std::string audiourl;
@@ -287,48 +298,48 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
             CivetServer::getParam(req_info->query_string, "audioplay", audioplay);
 			CivetServer::getParam(req_info->query_string, "options", options);
 		}
-		return this->createOffer(peerid, url, audiourl, audioplay, options);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->createOffer(peerid, url, audiourl, audioplay, options));
 	};
-	m_func["/api/setAnswer"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/setAnswer"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string peerid;
 		if (req_info->query_string)
 		{
 			CivetServer::getParam(req_info->query_string, "peerid", peerid);
 		}
-		return this->setAnswer(peerid, in);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->setAnswer(peerid, in));
 	};
 
-	m_func["/api/getIceCandidate"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/getIceCandidate"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string peerid;
 		if (req_info->query_string)
 		{
 			CivetServer::getParam(req_info->query_string, "peerid", peerid);
 		}
-		return this->getIceCandidateList(peerid);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getIceCandidateList(peerid));
 	};
 
-	m_func["/api/addIceCandidate"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/addIceCandidate"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string peerid;
 		if (req_info->query_string)
 		{
 			CivetServer::getParam(req_info->query_string, "peerid", peerid);
 		}
-		return this->addIceCandidate(peerid, in);
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->addIceCandidate(peerid, in));
 	};
 
-	m_func["/api/getPeerConnectionList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getPeerConnectionList();
+	m_func["/api/getPeerConnectionList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getPeerConnectionList());
 	};
 
-	m_func["/api/getStreamList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
-		return this->getStreamList();
+	m_func["/api/getStreamList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
+		return std::make_tuple(200, std::map<std::string,std::string>(),this->getStreamList());
 	};
 
-	m_func["/api/version"] = [](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/version"] = [](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		Json::Value answer(VERSION);
-		return answer;
+		return std::make_tuple(200, std::map<std::string,std::string>(), answer);
 	};
-	m_func["/api/log"] = [](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/log"] = [](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		std::string loglevel;
 		if (req_info->query_string)
 		{
@@ -339,25 +350,134 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 			}
 		}
 		Json::Value answer(rtc::LogMessage::GetLogToDebug());
-		return answer;
+		return std::make_tuple(200, std::map<std::string,std::string>(), answer);
 	};
-	m_func["/api/help"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> Json::Value {
+	m_func["/api/help"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
 		Json::Value answer;
-		for (const auto& it : m_func)
-		{
+		for (auto it : m_func) {
 			answer.append(it.first);
 		}
-		return answer;
+		return std::make_tuple(200, std::map<std::string,std::string>(), answer);
 	};
 }
 
 /* ---------------------------------------------------------------------------
 **  Destructor
 ** -------------------------------------------------------------------------*/
-PeerConnectionManager::~PeerConnectionManager()
-{
+PeerConnectionManager::~PeerConnectionManager() {
+	m_workerThread->BlockingCall([this] {
+		m_audioDeviceModule->Release();
+    });	
 }
 
+// from https://stackoverflow.com/a/12468109/3102264
+std::string random_string( size_t length )
+{
+    auto randchar = []() -> char
+    {
+        const char charset[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+        const size_t max_index = (sizeof(charset) - 1);
+        return charset[ rand() % max_index ];
+    };
+    std::string str(length,0);
+    std::generate_n( str.begin(), length, randchar );
+    return str;
+}
+
+std::tuple<int, std::map<std::string,std::string>,Json::Value> PeerConnectionManager::whip(const struct mg_request_info *req_info, const Json::Value &in) {
+	std::string peerid;
+	std::string videourl;
+	std::string audiourl;
+	std::string options;
+	int httpcode = 501;
+	if (req_info->query_string)
+	{
+		CivetServer::getParam(req_info->query_string, "peerid", peerid);
+		CivetServer::getParam(req_info->query_string, "url", videourl);
+		CivetServer::getParam(req_info->query_string, "audiourl", audiourl);
+		CivetServer::getParam(req_info->query_string, "options", options);
+	}
+	std::string locationurl(req_info->request_uri);
+	locationurl.append("?").append(req_info->query_string);
+
+	if (peerid.empty()) {
+		
+		peerid = random_string(32);
+		locationurl.append("&").append("peerid=").append(peerid);
+	}
+	std::map<std::string,std::string> headers;
+	std::string answersdp;
+	if (strcmp(req_info->request_method,"DELETE")==0) {
+		this->hangUp(peerid);
+	} else if (strcmp(req_info->request_method,"PATCH")==0) {
+		RTC_LOG(LS_INFO) << "PATCH\n" << in.asString();
+		std::istringstream is(in.asString());
+		std::string str;
+		std::string mid;
+    		while(std::getline(is,str)) {
+			str.erase(std::remove(str.begin(), str.end(), '\r'), str.end());
+			if (strstr(str.c_str(),"a=mid:")) {
+				mid = str.substr(strlen("a=mid:"));
+			} else if (strstr(str.c_str(),"a=candidate")) {
+				std::string sdp = str.substr(strlen("a="));
+				std::unique_ptr<webrtc::IceCandidateInterface> candidate(webrtc::CreateIceCandidate(mid, 0, sdp, NULL));
+				if (!candidate.get()) {
+					RTC_LOG(LS_WARNING) << "Can't parse received candidate message.";
+				} else {
+					std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
+					rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = this->getPeerConnection(peerid);
+					if (peerConnection) {
+						if (!peerConnection->AddIceCandidate(candidate.get())) {
+							RTC_LOG(LS_WARNING) << "Failed to apply the received candidate";
+						} else {
+							httpcode = 200;
+						}
+					}
+				}
+			} else if (strstr(str.c_str(),"a=end-of-candidates")) {
+				RTC_LOG(LS_INFO) << "end of candidate";
+				httpcode = 200;
+			}
+    		}
+
+
+	} else {
+		std::string offersdp(in.asString());
+		RTC_LOG(LS_ERROR) << "offer:" << offersdp;
+		webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kOffer, offersdp, NULL));
+		if (!session_description) {
+			RTC_LOG(LS_WARNING) << "Can't parse received session description message.";
+		} else {
+			std::unique_ptr<webrtc::SessionDescriptionInterface> desc = this->getAnswer(peerid, session_description, videourl, audiourl, options);
+			if (desc.get()) {
+				desc->ToString(&answersdp);
+				headers["location"] = locationurl;
+				headers["Content-Type"] = "application/sdp";
+				httpcode = 201;
+			} else {
+				RTC_LOG(LS_ERROR) << "Failed to create answer - no SDP";
+			}
+		}
+		RTC_LOG(LS_INFO) << "anwser:" << answersdp;
+
+	}
+	return std::make_tuple(httpcode, headers,answersdp);
+}
+
+void PeerConnectionManager::createAudioModule(webrtc::AudioDeviceModule::AudioLayer audioLayer) {
+#ifdef HAVE_SOUND
+	m_audioDeviceModule = webrtc::AudioDeviceModule::Create(audioLayer, m_task_queue_factory.get());
+	if (m_audioDeviceModule->Init() != 0) {
+		RTC_LOG(LS_WARNING) << "audio init fails -> disable audio capture";
+		m_audioDeviceModule = new webrtc::FakeAudioDeviceModule();
+	}
+#else
+	m_audioDeviceModule = new webrtc::FakeAudioDeviceModule();
+#endif	
+}
 /* ---------------------------------------------------------------------------
 **  return deviceList as JSON vector
 ** -------------------------------------------------------------------------*/
@@ -553,7 +673,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 	{
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
 
-		if (!this->AddStreams(peerid, peerConnection, videourl, audiourl, options))
+		if (!this->AddStreams(peerConnection.get(), videourl, audiourl, options))
 		{
 			RTC_LOG(LS_WARNING) << "Can't add stream";
 		}
@@ -573,12 +693,15 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
             peerConnection->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, init);
         }
 
-        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
-		std::promise<const webrtc::SessionDescriptionInterface *> promise;
-		peerConnection->CreateOffer(CreateSessionDescriptionObserver::Create(peerConnection, promise), rtcoptions);
+		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
+		rtcoptions.offer_to_receive_video = 0;
+		rtcoptions.offer_to_receive_audio = 0;
+		std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
+		rtc::scoped_refptr<CreateSessionDescriptionObserver> localSessionObserver(CreateSessionDescriptionObserver::Create(peerConnection, localpromise));
+		peerConnection->CreateOffer(localSessionObserver.get(), rtcoptions);
 
 		// waiting for offer
-		std::future<const webrtc::SessionDescriptionInterface *> future = promise.get_future();
+		std::future<const webrtc::SessionDescriptionInterface *> future = localpromise.get_future();
 		if (future.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
 		{
 			// answer with the created offer
@@ -593,12 +716,13 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 			}
 			else
 			{
-				RTC_LOG(LS_ERROR) << "Failed to create offer";
+				RTC_LOG(LS_ERROR) << "Failed to create offer - no session";
 			}
 		}
 		else
 		{
-			RTC_LOG(LS_ERROR) << "Failed to create offer";
+			localSessionObserver->cancel();
+			RTC_LOG(LS_ERROR) << "Failed to create offer - timeout";
 		}
 	}
 	return offer;
@@ -636,7 +760,8 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 			if (peerConnection)
 			{
 				std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
-				peerConnection->SetRemoteDescription(SetSessionDescriptionObserver::Create(peerConnection, remotepromise), session_description);
+				rtc::scoped_refptr<SetSessionDescriptionObserver> remoteSessionObserver(SetSessionDescriptionObserver::Create(peerConnection, remotepromise));
+				peerConnection->SetRemoteDescription(remoteSessionObserver.get(), session_description);
 				// waiting for remote description
 				std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
 				if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -656,7 +781,7 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 				}
 				else
 				{
-					peerConnection->SetRemoteDescription(NULL,NULL);
+					remoteSessionObserver->cancel();
 					RTC_LOG(LS_WARNING) << "Can't get remote description.";
 					answer["error"] = "Can't get remote description.";
 				}
@@ -666,24 +791,9 @@ const Json::Value PeerConnectionManager::setAnswer(const std::string &peerid, co
 	return answer;
 }
 
-/* ---------------------------------------------------------------------------
-**  auto-answer to a call
-** -------------------------------------------------------------------------*/
-const Json::Value PeerConnectionManager::call(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &options, const Json::Value &jmessage)
-{
-	RTC_LOG(LS_INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " options:" << options;
+std::unique_ptr<webrtc::SessionDescriptionInterface> PeerConnectionManager::getAnswer(const std::string & peerid, webrtc::SessionDescriptionInterface *session_description, const std::string & videourl, const std::string & audiourl, const std::string & options) {
+	std::unique_ptr<webrtc::SessionDescriptionInterface> answer;
 
-	Json::Value answer;
-
-	std::string type;
-	std::string sdp;
-
-	if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
-	{
-		RTC_LOG(LS_WARNING) << "Can't parse received message.";
-	}
-	else
-	{
 		PeerConnectionObserver *peerConnectionObserver = this->CreatePeerConnection(peerid);
 		if (!peerConnectionObserver)
 		{
@@ -706,30 +816,23 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 			}
 
 			// set remote offer
-			webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, NULL));
-			if (!session_description)
+			std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
+			rtc::scoped_refptr<SetSessionDescriptionObserver> remoteSessionObserver(SetSessionDescriptionObserver::Create(peerConnection, remotepromise));
+			peerConnection->SetRemoteDescription(remoteSessionObserver.get(), session_description);
+			// waiting for remote description
+			std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
+			if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
 			{
-				RTC_LOG(LS_WARNING) << "Can't parse received session description message.";
+				RTC_LOG(LS_INFO) << "remote_description is ready";
 			}
 			else
 			{
-				std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
-				peerConnection->SetRemoteDescription(SetSessionDescriptionObserver::Create(peerConnection, remotepromise), session_description);
-				// waiting for remote description
-				std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
-				if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
-				{
-					RTC_LOG(LS_INFO) << "remote_description is ready";
-				}
-				else
-				{
-					peerConnection->SetRemoteDescription(NULL, NULL);
-					RTC_LOG(LS_WARNING) << "remote_description is NULL";
-				}
+				remoteSessionObserver->cancel();
+				RTC_LOG(LS_WARNING) << "remote_description is NULL";
 			}
 
 			// add local stream
-			if (!this->AddStreams(peerid, peerConnection, videourl, audiourl, options))
+			if (!this->AddStreams(peerConnection.get(), videourl, audiourl, options))
 			{
 				RTC_LOG(LS_WARNING) << "Can't add stream";
 			}
@@ -737,8 +840,8 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 			// create answer
 			webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
 			std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
-			peerConnection->CreateAnswer(CreateSessionDescriptionObserver::Create(peerConnection, localpromise), rtcoptions);
-
+			rtc::scoped_refptr<CreateSessionDescriptionObserver> localSessionObserver(CreateSessionDescriptionObserver::Create(peerConnection, localpromise));
+			peerConnection->CreateAnswer(localSessionObserver.get(), rtcoptions);
 			// waiting for answer
 			std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
 			if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -747,20 +850,57 @@ const Json::Value PeerConnectionManager::call(const std::string &peerid, const s
 				const webrtc::SessionDescriptionInterface *desc = localfuture.get();
 				if (desc)
 				{
-					std::string sdp;
-					desc->ToString(&sdp);
-
-					answer[kSessionDescriptionTypeName] = desc->type();
-					answer[kSessionDescriptionSdpName] = sdp;
+					answer = desc->Clone();
 				}
 				else
 				{
-					RTC_LOG(LS_ERROR) << "Failed to create answer";
+					RTC_LOG(LS_ERROR) << "Failed to create answer - no SDP";
 				}
 			}
 			else
 			{
-				RTC_LOG(LS_ERROR) << "Failed to create answer";
+				RTC_LOG(LS_ERROR) << "Failed to create answer - timeout";
+				localSessionObserver->cancel();
+			}
+		}
+		return answer;
+	}
+
+/* ---------------------------------------------------------------------------
+**  auto-answer to a call
+** -------------------------------------------------------------------------*/
+const Json::Value PeerConnectionManager::call(const std::string &peerid, const std::string &videourl, const std::string &audiourl, const std::string &options, const Json::Value &jmessage)
+{
+	RTC_LOG(LS_INFO) << __FUNCTION__ << " video:" << videourl << " audio:" << audiourl << " options:" << options;
+
+	Json::Value answer;
+
+	std::string type;
+	std::string sdp;
+
+	if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
+	{
+		RTC_LOG(LS_WARNING) << "Can't parse received message.";
+	}
+	else
+	{
+		webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, NULL));
+		if (!session_description) {
+			RTC_LOG(LS_WARNING) << "Can't parse received session description message.";
+		}
+		else {
+			std::unique_ptr<webrtc::SessionDescriptionInterface> desc = this->getAnswer(peerid, session_description, videourl, audiourl, options);
+			if (desc.get())
+			{
+				std::string sdp;
+				desc->ToString(&sdp);
+
+				answer[kSessionDescriptionTypeName] = desc->type();
+				answer[kSessionDescriptionSdpName] = sdp;
+			}
+			else
+			{
+				RTC_LOG(LS_ERROR) << "Failed to create answer - no SDP";
 			}
 		}
 	}
@@ -832,7 +972,7 @@ const Json::Value PeerConnectionManager::hangUp(const std::string &peerid)
 						RTC_LOG(LS_ERROR) << "hangUp stream closed " << streamLabel;
 					}
 
-					peerConnection->RemoveTrack(stream);
+					peerConnection->RemoveTrackOrError(stream);
 				}
 			}
 
@@ -942,10 +1082,6 @@ const Json::Value PeerConnectionManager::getPeerConnectionList()
 			content["streams"] = streams;
 		}
 		
-
-		// get Stats
-		//		content["stats"] = it.second->getStats();
-
 		Json::Value pc;
 		pc[it.first] = content;
 		value.append(pc);
@@ -976,10 +1112,35 @@ bool PeerConnectionManager::InitializePeerConnection()
 }
 
 /* ---------------------------------------------------------------------------
+**  get oldest PeerConnection
+** -------------------------------------------------------------------------*/
+std::string PeerConnectionManager::getOldestPeerCannection()
+{
+	uint64_t oldestpc = std::numeric_limits<uint64_t>::max();
+	std::string oldestpeerid;
+	std::lock_guard<std::mutex> peerlock(m_peerMapMutex);
+	if ( (m_maxpc > 0) && (m_peer_connectionobs_map.size() >= m_maxpc) ) {
+		for (auto it : m_peer_connectionobs_map) {
+			uint64_t creationTime = it.second->getCreationTime();
+			if (creationTime < oldestpc) {
+				oldestpc = creationTime;
+				oldestpeerid = it.second->getPeerId();
+			}
+		}
+	}
+	return oldestpeerid;
+}
+
+/* ---------------------------------------------------------------------------
 **  create a new PeerConnection
 ** -------------------------------------------------------------------------*/
 PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeerConnection(const std::string &peerid)
 {
+	std::string oldestpeerid = this->getOldestPeerCannection();
+	if (!oldestpeerid.empty()) {
+		this->hangUp(oldestpeerid);
+	}
+
 	webrtc::PeerConnectionInterface::RTCConfiguration config;
 	if (m_usePlanB) {
 		config.sdp_semantics = webrtc::SdpSemantics::kPlanB;
@@ -1009,10 +1170,13 @@ PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeer
 			maxPort = std::stoi(port);
 		}
 	}
-	RTC_LOG(LS_INFO) << __FUNCTION__ << "CreatePeerConnection webrtcPortRange:" << minPort << ":" << maxPort;
 
-	RTC_LOG(LS_INFO) << __FUNCTION__ << "CreatePeerConnection peerid:" << peerid;
-	PeerConnectionObserver *obs = new PeerConnectionObserver(this, peerid, config, minPort, maxPort);
+	config.port_allocator_config.min_port = minPort;
+	config.port_allocator_config.max_port = maxPort;
+
+	RTC_LOG(LS_INFO) << __FUNCTION__ << "CreatePeerConnection peerid:" << peerid << " webrtcPortRange:" << minPort << ":" << maxPort;
+
+	PeerConnectionObserver *obs = new PeerConnectionObserver(this, peerid, config);
 	if (!obs)
 	{
 		RTC_LOG(LS_ERROR) << __FUNCTION__ << "CreatePeerConnection failed";
@@ -1051,7 +1215,9 @@ rtc::scoped_refptr<webrtc::AudioSourceInterface> PeerConnectionManager::CreateAu
 		audio = it->second;
 	}
 
-	return CapturerFactory::CreateAudioSource(audio, opts, m_publishFilter, m_peer_connection_factory, m_audioDecoderfactory, m_audioDeviceModule);
+	return m_workerThread->BlockingCall([this, audio, opts] {
+		return CapturerFactory::CreateAudioSource(audio, opts, m_publishFilter, m_peer_connection_factory, m_audioDecoderfactory, m_audioDeviceModule);
+    });
 }
 
 const std::string PeerConnectionManager::sanitizeLabel(const std::string &label)
@@ -1176,8 +1342,7 @@ bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerCo
 				}
 				else
 				{
-					rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoScaled = VideoFilter<VideoScaler>::Create(videoSource, opts);
-					rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track = m_peer_connection_factory->CreateVideoTrack(streamLabel + "_video", videoScaled);
+					rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track = m_peer_connection_factory->CreateVideoTrack(streamLabel + "_video", videoSource.get());
 					if ((video_track) && (!peer_connection->AddTrack(video_track, {streamLabel}).ok()))
 					{
 						RTC_LOG(LS_ERROR) << "Adding VideoTrack to MediaStream failed";
@@ -1196,7 +1361,7 @@ bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerCo
 				}
 				else
 				{
-					rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track = m_peer_connection_factory->CreateAudioTrack(streamLabel + "_audio", audioSource);
+					rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track = m_peer_connection_factory->CreateAudioTrack(streamLabel + "_audio", audioSource.get());
 					if ((audio_track) && (!peer_connection->AddTrack(audio_track, {streamLabel}).ok()))
 					{
 						RTC_LOG(LS_ERROR) << "Adding AudioTrack to MediaStream failed";

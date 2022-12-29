@@ -35,13 +35,13 @@
 #include "VideoDecoder.h"
 
 template <typename T>
-class LiveVideoSource : public rtc::VideoSourceInterface<webrtc::VideoFrame>, public T::Callback
+class LiveVideoSource : public VideoSourceWithDecoder, public T::Callback
 {
 public:
     LiveVideoSource(const std::string &uri, const std::map<std::string, std::string> &opts, std::unique_ptr<webrtc::VideoDecoderFactory>& videoDecoderFactory, bool wait) :
         m_env(m_stop),
 	    m_liveclient(m_env, this, uri.c_str(), opts, rtc::LogMessage::GetLogToDebug()<=2),
-	    m_decoder(m_broadcaster, opts, videoDecoderFactory, wait) {
+	    VideoSourceWithDecoder(opts, videoDecoderFactory, wait) {
             this->Start();
     }
     virtual ~LiveVideoSource() {
@@ -50,16 +50,14 @@ public:
 
     void Start()
     {
-        RTC_LOG(INFO) << "LiveVideoSource::Start";
+        RTC_LOG(LS_INFO) << "LiveVideoSource::Start";
         m_capturethread = std::thread(&LiveVideoSource::CaptureThread, this);
-        m_decoder.Start();
     }
     void Stop()
     {
-        RTC_LOG(INFO) << "LiveVideoSource::stop";
+        RTC_LOG(LS_INFO) << "LiveVideoSource::stop";
         m_env.stop();
         m_capturethread.join();
-        m_decoder.Stop();
     }
     bool IsRunning() { return (m_stop == 0); }
 
@@ -74,17 +72,17 @@ public:
         bool success = false;
         if (strcmp(media, "video") == 0)
         {
-            RTC_LOG(INFO) << "LiveVideoSource::onNewSession id:"<< id << " media:" << media << "/" << codec << " sdp:" << sdp;
+            RTC_LOG(LS_INFO) << "LiveVideoSource::onNewSession id:"<< id << " media:" << media << "/" << codec << " sdp:" << sdp;
 
             if ( (strcmp(codec, "H264") == 0)
                || (strcmp(codec, "JPEG") == 0)
                || (strcmp(codec, "VP9") == 0) )
             {
-                RTC_LOG(INFO) << "LiveVideoSource::onNewSession id:'" << id << "' '" << codec << "'\n";
+                RTC_LOG(LS_INFO) << "LiveVideoSource::onNewSession id:'" << id << "' '" << codec << "'\n";
                 m_codec[id] = codec;
                 success = true;
             }
-            RTC_LOG(INFO) << "LiveVideoSource::onNewSession success:" << success << "\n";
+            RTC_LOG(LS_INFO) << "LiveVideoSource::onNewSession success:" << success << "\n";
             if (success) 
             {
                 struct timeval presentationTime;
@@ -99,6 +97,7 @@ public:
         }
         return success;
     }
+
     virtual bool onData(const char *id, unsigned char *buffer, ssize_t size, struct timeval presentationTime)
     {
         int64_t ts = presentationTime.tv_sec;
@@ -109,71 +108,62 @@ public:
         std::string codec = m_codec[id];
         if (codec == "H264")
         {
-            webrtc::H264::NaluType nalu_type = webrtc::H264::ParseNaluType(buffer[sizeof(H26X_marker)]);
-            if (nalu_type == webrtc::H264::NaluType::kSps)
-            {
-                RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData SPS";
-                m_cfg.clear();
-                m_cfg.insert(m_cfg.end(), buffer, buffer + size);
+            std::vector<webrtc::H264::NaluIndex> indexes = webrtc::H264::FindNaluIndices(buffer,size);
+            RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData nbNalu:" << indexes.size();
+            for (const webrtc::H264::NaluIndex & index : indexes) {
+                webrtc::H264::NaluType nalu_type = webrtc::H264::ParseNaluType(buffer[index.payload_start_offset]);
+                if (nalu_type == webrtc::H264::NaluType::kSps)
+                {
+                    RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData SPS";
+                    m_cfg.clear();
+                    m_cfg.insert(m_cfg.end(), buffer + index.start_offset, buffer + index.payload_size + index.payload_start_offset - index.start_offset);
 
-                absl::optional<webrtc::SpsParser::SpsState> sps = webrtc::SpsParser::ParseSps(buffer + sizeof(H26X_marker) + webrtc::H264::kNaluTypeSize, size - sizeof(H26X_marker) - webrtc::H264::kNaluTypeSize);
-                if (!sps)
-                {
-                    RTC_LOG(LS_ERROR) << "cannot parse sps";
-                    res = -1;
-                }
-                else
-                {
-                    if (m_decoder.hasDecoder())
+                    absl::optional<webrtc::SpsParser::SpsState> sps = webrtc::SpsParser::ParseSps(buffer + index.payload_start_offset, index.payload_size);
+                    if (!sps)
                     {
-                        if ((m_format.width != sps->width) || (m_format.height != sps->height))
-                        {
-                            RTC_LOG(INFO) << "format changed => set format from " << m_format.width << "x" << m_format.height << " to " << sps->width << "x" << sps->height;
-                            m_decoder.destroyDecoder();
-                        }
+                        RTC_LOG(LS_ERROR) << "cannot parse sps";
+                        res = -1;
                     }
-
-                    if (!m_decoder.hasDecoder())
+                    else
                     {
                         int fps = 25;
-                        RTC_LOG(INFO) << "LiveVideoSource:onData SPS set format " << sps->width << "x" << sps->height << " fps:" << fps;
-                        cricket::VideoFormat videoFormat(sps->width, sps->height, cricket::VideoFormat::FpsToInterval(fps), cricket::FOURCC_I420);
-                        m_format = videoFormat;
-
-                        m_decoder.createDecoder(codec, sps->width, sps->height);
+                        RTC_LOG(LS_INFO) << "LiveVideoSource:onData SPS set format " << sps->width << "x" << sps->height << " fps:" << fps;
+                        cricket::VideoFormat videoFormat(sps->width, sps->height, cricket::VideoFormat::FpsToInterval(fps), cricket::FOURCC_H264);
+                        m_decoder.postFormat(videoFormat);
                     }
                 }
-            }
-            else if (nalu_type == webrtc::H264::NaluType::kPps)
-            {
-                RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData PPS";
-                m_cfg.insert(m_cfg.end(), buffer, buffer + size);
-            }
-            else if (nalu_type == webrtc::H264::NaluType::kSei) 
-            {
-            }            
-            else if (m_decoder.hasDecoder())
-            {
-                webrtc::VideoFrameType frameType = webrtc::VideoFrameType::kVideoFrameDelta;
-                std::vector<uint8_t> content;
-                if (nalu_type == webrtc::H264::NaluType::kIdr)
+                else if (nalu_type == webrtc::H264::NaluType::kPps)
                 {
-                    frameType = webrtc::VideoFrameType::kVideoFrameKey;
-                    RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData IDR";
-                    content.insert(content.end(), m_cfg.begin(), m_cfg.end());
+                    RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData PPS";
+                    m_cfg.insert(m_cfg.end(), buffer + index.start_offset, buffer + index.payload_size + index.payload_start_offset - index.start_offset);
                 }
+                else if (nalu_type == webrtc::H264::NaluType::kSei) 
+                {
+                }            
                 else
                 {
-                    RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData SLICE NALU:" << nalu_type;
+                    webrtc::VideoFrameType frameType = webrtc::VideoFrameType::kVideoFrameDelta;
+                    std::vector<uint8_t> content;
+                    if (nalu_type == webrtc::H264::NaluType::kIdr)
+                    {
+                        frameType = webrtc::VideoFrameType::kVideoFrameKey;
+                        RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData IDR";
+                        content.insert(content.end(), m_cfg.begin(), m_cfg.end());
+                    }
+                    else
+                    {
+                        RTC_LOG(LS_VERBOSE) << "LiveVideoSource:onData SLICE NALU:" << nalu_type;
+                    }
+                    std::string decoderName(m_decoder.m_decoder->ImplementationName());
+                    if (m_prevTimestamp && ts < m_prevTimestamp && decoderName == "FFmpeg") {
+                        RTC_LOG(LS_ERROR) << "LiveVideoSource:onData drop frame in past for FFmpeg:" << (m_prevTimestamp-ts);
+
+                    } else {
+                        content.insert(content.end(), buffer + index.start_offset, buffer + index.payload_size + index.payload_start_offset - index.start_offset);
+                        rtc::scoped_refptr<webrtc::EncodedImageBuffer> frame = webrtc::EncodedImageBuffer::Create(content.data(), content.size());
+                        m_decoder.PostFrame(frame, ts, frameType);
+                    }
                 }
-                content.insert(content.end(), buffer, buffer + size);
-                rtc::scoped_refptr<webrtc::EncodedImageBuffer> frame = webrtc::EncodedImageBuffer::Create(content.data(), content.size());
-                m_decoder.PostFrame(frame, ts, frameType);
-            }
-            else
-            {
-                RTC_LOG(LS_ERROR) << "LiveVideoSource:onData no decoder";
-                res = -1;
             }
         }
         else if (codec == "JPEG")
@@ -219,32 +209,18 @@ public:
         }
         else if (codec == "VP9")
         {
-            if (!m_decoder.hasDecoder())
-            {
-                m_decoder.createDecoder(codec);
-            }
-            if (m_decoder.hasDecoder())
-            {
+            cricket::VideoFormat videoFormat(0, 0, cricket::VideoFormat::FpsToInterval(0), FOURCC_VP9);
+            m_decoder.postFormat(videoFormat);
 
-                webrtc::VideoFrameType frameType = webrtc::VideoFrameType::kVideoFrameKey;
-                rtc::scoped_refptr<webrtc::EncodedImageBuffer> frame = webrtc::EncodedImageBuffer::Create(buffer, size);
-                m_decoder.PostFrame(frame, ts, frameType);
-            }
+            webrtc::VideoFrameType frameType = webrtc::VideoFrameType::kVideoFrameKey;
+            rtc::scoped_refptr<webrtc::EncodedImageBuffer> frame = webrtc::EncodedImageBuffer::Create(buffer, size);
+            m_decoder.PostFrame(frame, ts, frameType);
         }
 
+        m_prevTimestamp = ts;
         return (res == 0);
     }
 
-    // overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants)
-    {
-        m_broadcaster.AddOrUpdateSink(sink, wants);
-    }
-
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
-    {
-        m_broadcaster.RemoveSink(sink);
-    }
 
 private:
     char        m_stop;
@@ -255,10 +231,8 @@ protected:
 
 private:
     std::thread                        m_capturethread;
-    cricket::VideoFormat               m_format;
     std::vector<uint8_t>               m_cfg;
     std::map<std::string, std::string> m_codec;
 
-    rtc::VideoBroadcaster              m_broadcaster;
-    VideoDecoder                       m_decoder;
+    uint64_t                           m_prevTimestamp;
 };

@@ -50,18 +50,20 @@ int main(int argc, char* argv[])
 	const char* localturnurl  = NULL;
 	const char* stunurl       = "stun.l.google.com:19302";
 	std::string localWebrtcUdpPortRange = "0:65535";
-	int logLevel              = rtc::LERROR;
+	int logLevel              = rtc::LS_ERROR;
 	const char* webroot       = "./html";
 	std::string sslCertificate;
 	webrtc::AudioDeviceModule::AudioLayer audioLayer = webrtc::AudioDeviceModule::kPlatformDefaultAudio;
-	std::string streamName;
 	std::string nbthreads;
 	std::string passwdFile;
 	std::string authDomain = "mydomain.com";
+	bool        disableXframeOptions = false;
+
 	std::string publishFilter(".*");
 	Json::Value config;  
 	bool        useNullCodec = false;
 	bool        usePlanB = false;
+	int         maxpc = 0;
 	std::string webrtcTrialsFields = "WebRTC-FrameDropper/Disabled/";
 
 	std::string httpAddress("0.0.0.0:");
@@ -73,17 +75,20 @@ int main(int argc, char* argv[])
 	}
 	httpAddress.append(httpPort);
 
+	std::string streamName;
 	int c = 0;
-	while ((c = getopt (argc, argv, "hVv::" "c:H:w:N:A:D:C:" "T::t:S::s::R:W::" "a::q:ob" "n:u:U:")) != -1)
+	while ((c = getopt (argc, argv, "hVv::C:" "c:H:w:N:A:D:Xm:" "T::t:S::s::R:W:" "a::q:ob" "n:u:U:")) != -1)
 	{
 		switch (c)
 		{
-			case 'H': httpAddress = optarg;    break;
-			case 'c': sslCertificate = optarg; break;
-			case 'w': webroot = optarg;        break;
-			case 'N': nbthreads = optarg;      break;
-			case 'A': passwdFile = optarg;     break;
-			case 'D': authDomain = optarg;     break;
+			case 'H': httpAddress = optarg;        break;
+			case 'c': sslCertificate = optarg;     break;
+			case 'w': webroot = optarg;            break;
+			case 'N': nbthreads = optarg;          break;
+			case 'A': passwdFile = optarg;         break;
+			case 'D': authDomain = optarg;         break;
+			case 'X': disableXframeOptions = true; break;
+			case 'm': maxpc = atoi(optarg);        break;
 
 			case 'T': localturnurl = optarg ? optarg : defaultlocalturnurl; turnurl = localturnurl; break;
 			case 't': turnurl = optarg;                                                             break;
@@ -140,7 +145,7 @@ int main(int argc, char* argv[])
 
 				std::cout << std::endl << "  HTTP options" << std::endl;
 				std::cout << "\t -H hostname:port                   : HTTP server binding (default "   << httpAddress    << ")"                         << std::endl;
-				std::cout << "\t -w webroot                         : path to get files"                                                                << std::endl;
+				std::cout << "\t -w webroot                         : path to get static files"                                                                << std::endl;
 				std::cout << "\t -c sslkeycert                      : path to private key and certificate for HTTPS"                                    << std::endl;
 				std::cout << "\t -N nbthreads                       : number of threads for HTTP server"                                                << std::endl;
 				std::cout << "\t -A passwd                          : password file for HTTP server access"                                             << std::endl;
@@ -152,13 +157,13 @@ int main(int argc, char* argv[])
 				std::cout << "\t -t[username:password@]turn_address : use an external TURN relay server (default:disabled)"                              << std::endl;
 				std::cout << "\t -T[username:password@]turn_address : start embeded TURN server (default:disabled)"				                         << std::endl;
 				std::cout << "\t -R Udp_port_min:Udp_port_min       : Set the webrtc udp port range (default:" << localWebrtcUdpPortRange << ")"         << std::endl;
-				std::cout << "\t -W webrtc_trials_fileds            : Set the webrtc trials fields (default:" << webrtcTrialsFields << ")"               << std::endl;
+				std::cout << "\t -W webrtc_trials_fields            : Set the webrtc trials fields (default:" << webrtcTrialsFields << ")"               << std::endl;
 #ifdef HAVE_SOUND				
 				std::cout << "\t -a[audio layer]                    : spefify audio capture layer to use (default:" << audioLayer << ")"                 << std::endl;
 #endif				
 				std::cout << "\t -q[filter]                         : spefify publish filter (default:" << publishFilter << ")"                          << std::endl;
 				std::cout << "\t -o                                 : use null codec (keep frame encoded)"                                               << std::endl;
-				std::cout << "\t -b                                 : use sdp plan-B (defailt use unifiedPlan)"                                          << std::endl;
+				std::cout << "\t -b                                 : use sdp plan-B (default use unifiedPlan)"                                          << std::endl;
 			
 				exit(0);
 		}
@@ -180,6 +185,7 @@ int main(int argc, char* argv[])
 	rtc::LogMessage::LogThreads();
 	std::cout << "Logger level:" <<  rtc::LogMessage::GetLogToDebug() << std::endl;
 
+	rtc::ThreadManager::Instance()->WrapCurrentThread();
 	rtc::Thread* thread = rtc::Thread::Current();
 	rtc::InitializeSSL();
 
@@ -195,7 +201,7 @@ int main(int argc, char* argv[])
 	// init trials fields
 	webrtc::field_trial::InitFieldTrialsFromString(webrtcTrialsFields.c_str());
 
-	webRtcServer = new PeerConnectionManager(iceServerList, config["urls"], audioLayer, publishFilter, localWebrtcUdpPortRange, useNullCodec, usePlanB);
+	webRtcServer = new PeerConnectionManager(iceServerList, config["urls"], audioLayer, publishFilter, localWebrtcUdpPortRange, useNullCodec, usePlanB, maxpc);
 	if (!webRtcServer->InitializePeerConnection())
 	{
 		std::cout << "Cannot Initialize WebRTC server" << std::endl;
@@ -208,8 +214,10 @@ int main(int argc, char* argv[])
 		options.push_back(webroot);
 		options.push_back("enable_directory_listing");
 		options.push_back("no");
-		options.push_back("additional_header");
-		options.push_back("X-Frame-Options: SAMEORIGIN");
+		if (!disableXframeOptions) {
+			options.push_back("additional_header");
+			options.push_back("X-Frame-Options: SAMEORIGIN");
+		}
 		options.push_back("access_control_allow_origin");
 		options.push_back("*");
 		options.push_back("listening_ports");

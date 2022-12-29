@@ -58,22 +58,26 @@ class RequestHandler : public CivetHandler
 
         const struct mg_request_info *req_info = mg_get_request_info(conn);
         
-        RTC_LOG(INFO) << "uri:" << req_info->request_uri;
+        RTC_LOG(LS_INFO) << "uri:" << req_info->request_uri;
         
 		// read input
 		Json::Value  in = this->getInputMessage(req_info, conn);
 		
 		// invoke API implementation
-		Json::Value out(m_func(req_info, in));
+		std::tuple<int, std::map<std::string,std::string>,Json::Value> out(m_func(req_info, in));
 		
-        int code;
+        int code = std::get<0>(out);
         std::string answer;
 
 		// fill out
-		if (out.isNull() == false)
+        Json::Value& body = std::get<2>(out);
+		if (body.isNull() == false)
 		{
-            answer = Json::writeString(m_writerBuilder,out);
-            code = 200;
+            if (body.isString()) {
+                answer = body.asString();
+            } else {
+                answer = Json::writeString(m_writerBuilder,body);
+            }
 		} else {
             code = 500;
             answer = mg_get_response_code_text(conn, code);
@@ -84,6 +88,10 @@ class RequestHandler : public CivetHandler
         mg_printf(conn,"Access-Control-Allow-Origin: *\r\n");
         mg_printf(conn,"Content-Type: text/plain\r\n");
         mg_printf(conn,"Content-Length: %zd\r\n", answer.size());
+        std::map<std::string,std::string> & headers = std::get<1>(out);
+        for (auto & it : headers) {
+            mg_printf(conn,"%s: %s\r\n", it.first.c_str(), it.second.c_str());
+        } 
         mg_printf(conn,"\r\n");
         mg_write(conn,answer.c_str(),answer.size());
         
@@ -97,7 +105,15 @@ class RequestHandler : public CivetHandler
     {
         return handle(server, conn);
     }
-
+    bool handlePatch(CivetServer *server, struct mg_connection *conn)
+    {
+        return handle(server, conn);
+    }
+    bool handleDelete(CivetServer *server, struct mg_connection *conn)
+    {
+        return handle(server, conn);
+    }
+    
   private:
     HttpServerRequestHandler::httpFunction      m_func;	
     Json::StreamWriterBuilder                   m_writerBuilder;
@@ -112,30 +128,15 @@ class RequestHandler : public CivetHandler
         long long tlen = req_info->content_length;
         if (tlen > 0)
         {
-            std::string body;
-            long long nlen = 0;
-            const long long bufSize = 1024;
-            char buf[bufSize];
-            while (nlen < tlen) {
-                long long rlen = tlen - nlen;
-                if (rlen > bufSize) {
-                    rlen = bufSize;
-                }
-                rlen = mg_read(conn, buf, (size_t)rlen);
-                if (rlen <= 0) {
-                    break;
-                }
-                body.append(buf, rlen);
-
-                nlen += rlen;
-            }
+            std::string body = CivetServer::getPostData(conn);
 
             // parse in
             std::unique_ptr<Json::CharReader> reader(m_readerBuilder.newCharReader());
             std::string errors;
             if (!reader->parse(body.c_str(), body.c_str() + body.size(), &jmessage, &errors))
             {
-                RTC_LOG(WARNING) << "Received unknown message:" << body << " errors:" << errors;
+                RTC_LOG(LS_WARNING) << "Received unknown message:" << body << " errors:" << errors;
+                jmessage = body;
             }
         }
         return jmessage;
@@ -159,7 +160,9 @@ class PrometheusHandler : public CivetHandler
 
     bool handleGet(CivetServer *server, struct mg_connection *conn)
     {
+#ifndef WIN32
         updateMetrics();
+#endif        
 
         auto collected = m_registry.Collect();
 
@@ -181,9 +184,7 @@ class PrometheusHandler : public CivetHandler
     }
 
   private:
-  #ifdef WIN32
-    void updateMetrics() {}
-  #else
+  #ifndef WIN32
     void updateMetrics() {
         long fds = get_fds_total();
         m_fds.Set(fds);
@@ -250,12 +251,12 @@ class WebsocketHandler: public CivetWebSocketHandler {
 		Json::StreamWriterBuilder                   m_jsonWriterBuilder;
 	
 		virtual bool handleConnection(CivetServer *server, const struct mg_connection *conn) {
-			RTC_LOG(INFO) << "WS connected";
+			RTC_LOG(LS_INFO) << "WS connected";
 			return true;
 		}
 
 		virtual void handleReadyState(CivetServer *server, struct mg_connection *conn) {
-			RTC_LOG(INFO) << "WS ready";
+			RTC_LOG(LS_INFO) << "WS ready";
 		}
 
 		virtual bool handleData(CivetServer *server,
@@ -274,7 +275,7 @@ class WebsocketHandler: public CivetWebSocketHandler {
 				Json::Value in;
 				if (!reader->parse(body.c_str(), body.c_str() + body.size(), &in, NULL))
 				{
-					RTC_LOG(WARNING) << "Received unknown message:" << body;
+					RTC_LOG(LS_WARNING) << "Received unknown message:" << body;
 				}
                 std::cout << Json::writeString(m_jsonWriterBuilder,in) << std::endl;
 
@@ -287,9 +288,9 @@ class WebsocketHandler: public CivetWebSocketHandler {
                             
                     // invoke API implementation
                     const struct mg_request_info *req_info = mg_get_request_info(conn);
-                    Json::Value out(func(req_info, in.get("body","")));
+                    std::tuple<int, std::map<std::string,std::string>,Json::Value> out(func(req_info, in.get("body","")));
                     
-                    answer = Json::writeString(m_jsonWriterBuilder,out);
+                    answer = Json::writeString(m_jsonWriterBuilder,std::get<2>(out));
                 } else {
                     answer = mg_get_response_code_text(conn, 500);
                 }
@@ -301,7 +302,7 @@ class WebsocketHandler: public CivetWebSocketHandler {
 		}
 
 		virtual void handleClose(CivetServer *server, const struct mg_connection *conn) {
-			RTC_LOG(INFO) << "WS closed";	
+			RTC_LOG(LS_INFO) << "WS closed";	
 		}
 		
 };

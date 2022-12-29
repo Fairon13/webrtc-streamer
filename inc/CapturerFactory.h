@@ -30,6 +30,10 @@
 #include "windowcapturer.h"
 #endif
 
+#ifdef HAVE_RTMP
+#include "rtmpvideosource.h"
+#endif
+
 #include "pc/video_track_source.h"
 
 template<class T>
@@ -40,18 +44,34 @@ public:
 		if (!capturer) {
 			return nullptr;
 		}
-		return new rtc::RefCountedObject<TrackSource>(std::move(capturer));
+		return rtc::make_ref_counted<TrackSource>(std::move(capturer));
 	}
+
+	virtual bool GetStats(Stats* stats) override {
+		bool result = false;
+		T* source =  m_capturer.get();
+		if (source) {
+			stats->input_height = source->height();
+			stats->input_width = source->width();
+			result = true;
+		}
+		return result;
+	}
+
 
 protected:
 	explicit TrackSource(std::unique_ptr<T> capturer)
-		: webrtc::VideoTrackSource(/*remote=*/false), capturer_(std::move(capturer)) {}
+		: webrtc::VideoTrackSource(/*remote=*/false), m_capturer(std::move(capturer)) {}
+
+   	SourceState state() const override { 
+		return kLive; 
+   	}
 
 private:
 	rtc::VideoSourceInterface<webrtc::VideoFrame>* source() override {
-		return capturer_.get();
+		return m_capturer.get();
 	}
-	std::unique_ptr<T> capturer_;
+	std::unique_ptr<T> m_capturer;
 };
 
 class CapturerFactory {
@@ -152,7 +172,7 @@ class CapturerFactory {
 
 	static rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> CreateVideoSource(const std::string & videourl, const std::map<std::string,std::string> & opts, const std::regex & publishFilter, rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_connection_factory, std::unique_ptr<webrtc::VideoDecoderFactory>& videoDecoderFactory) {
 		rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-		if ((videourl.find("rtsp://") == 0) && (std::regex_match("rtsp://", publishFilter))) {
+		if ( ((videourl.find("rtsp://") == 0) || (videourl.find("rtsps://") == 0) )  && (std::regex_match("rtsp://", publishFilter))) {
 #ifdef HAVE_LIVE555
 			videoSource = TrackSource<RTSPVideoCapturer>::Create(videourl,opts, videoDecoderFactory);
 #endif	
@@ -179,6 +199,11 @@ class CapturerFactory {
 		{
 #ifdef USE_X11
 			videoSource = TrackSource<WindowCapturer>::Create(videourl, opts, videoDecoderFactory);
+#endif 
+		}
+		else if ((videourl.find("rtmp://") == 0) && (std::regex_match("rtmp://",publishFilter))) {
+#ifdef HAVE_RTMP
+			videoSource = TrackSource<RtmpVideoSource>::Create(videourl, opts, videoDecoderFactory);
 #endif 
 		}
 		else if ((videourl.find("v4l2://") == 0) && (std::regex_match("v4l2://",publishFilter))) {

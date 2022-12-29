@@ -15,7 +15,7 @@
 
 void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, std::unique_ptr<webrtc::DesktopFrame> frame) {
 	
-	RTC_LOG(INFO) << "DesktopCapturer:OnCaptureResult";
+	RTC_LOG(LS_INFO) << "DesktopCapturer:OnCaptureResult";
 	
 	if (result == webrtc::DesktopCapturer::Result::SUCCESS) {
 		int width = frame->stride() / webrtc::DesktopFrame::kBytesPerPixel;
@@ -35,7 +35,7 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 		if (conversionResult >= 0) {
 			webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
 			if ( (m_height == 0) && (m_width == 0) ) {
-				broadcaster_.OnFrame(videoFrame);	
+				m_broadcaster.OnFrame(videoFrame);	
 
 			} else {
 				int height = m_height;
@@ -50,9 +50,15 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 				int stride_uv = (width + 1) / 2;
 				rtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height, stride_y, stride_uv, stride_uv);
 				scaled_buffer->ScaleFrom(*videoFrame.video_frame_buffer()->ToI420());
-				webrtc::VideoFrame frame = webrtc::VideoFrame(scaled_buffer, webrtc::kVideoRotation_0, rtc::TimeMicros());
+
+	            webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+					.set_video_frame_buffer(scaled_buffer)
+					.set_rotation(webrtc::kVideoRotation_0)
+					.set_timestamp_us(rtc::TimeMicros())
+					.build();
+				
 						
-				broadcaster_.OnFrame(frame);
+				m_broadcaster.OnFrame(frame);
 			}
 		} else {
 			RTC_LOG(LS_ERROR) << "DesktopCapturer:OnCaptureResult conversion error:" << conversionResult;
@@ -64,11 +70,11 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 }
 		
 void DesktopCapturer::CaptureThread() {
-	RTC_LOG(INFO) << "DesktopCapturer:Run start";
+	RTC_LOG(LS_INFO) << "DesktopCapturer:Run start";
 	while (IsRunning()) {
 		m_capturer->CaptureFrame();
 	}
-	RTC_LOG(INFO) << "DesktopCapturer:Run exit";
+	RTC_LOG(LS_INFO) << "DesktopCapturer:Run exit";
 }
 bool DesktopCapturer::Start() {
 	m_isrunning = true;

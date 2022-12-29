@@ -9,7 +9,7 @@ endif()
 MESSAGE("CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}\nWEBRTCROOT = ${WEBRTCROOT}\nWEBRTCDESKTOPCAPTURE= ${WEBRTCDESKTOPCAPTURE}\nCMAKE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}")
 
 set (CMAKE_POSITION_INDEPENDENT_CODE ON)
-set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_EXTENSIONS OFF)
 
 # build version identifier
@@ -34,9 +34,9 @@ add_definitions(-DVERSION=\"${VERSION}\")
 
 # set CMAKE_FIND_ROOT_PATH to search package in WebRTC sysroot
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "armv.*")
-  set (CMAKE_FIND_ROOT_PATH ${WEBRTCROOT}/src/build/linux/debian_sid_arm-sysroot)
+  set (CMAKE_FIND_ROOT_PATH ${WEBRTCROOT}/src/build/linux/debian_bullseye_arm-sysroot)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
-  set (CMAKE_FIND_ROOT_PATH ${WEBRTCROOT}/src/build/linux/debian_sid_arm64-sysroot)
+  set (CMAKE_FIND_ROOT_PATH ${WEBRTCROOT}/src/build/linux/debian_bullseye_arm64-sysroot)
 endif()
 MESSAGE("CMAKE_FIND_ROOT_PATH = ${CMAKE_FIND_ROOT_PATH}")
 
@@ -67,13 +67,17 @@ if (NOT EXISTS ${WEBRTCROOT}/src/out/${CMAKE_BUILD_TYPE}/args.gn)
     string(REPLACE "--enable-armv6t2" "--disable-armv6t2" filecontent "${filecontent}")
     string(REPLACE "--enable-thumb" "--disable-thumb" filecontent "${filecontent}")
     string(REPLACE "--extra-cflags=-march=armv7-a" "--extra-cflags=-march=armv6" filecontent "${filecontent}")
+    string(REPLACE "debian_sid_arm-sysroot" "debian_bullseye_arm-sysroot" filecontent "${filecontent}")
     file(WRITE ${WEBRTCROOT}/src/third_party/ffmpeg/chromium/scripts/build_ffmpeg.py "${filecontent}")
-    EXECUTE_PROCESS(WORKING_DIRECTORY ${WEBRTCROOT}/src/third_party/ffmpeg COMMAND python2 chromium/scripts/build_ffmpeg.py linux arm --config-only)
+    EXECUTE_PROCESS(WORKING_DIRECTORY ${WEBRTCROOT}/src/third_party/ffmpeg COMMAND python3 chromium/scripts/build_ffmpeg.py linux arm --config-only)
     EXECUTE_PROCESS(WORKING_DIRECTORY ${WEBRTCROOT}/src/third_party/ffmpeg COMMAND chromium/scripts/copy_config.sh)
   endif()
 
   # sound support
-  if (NOT WIN32)
+  if (APPLE)
+    set (WEBRTCARGS rtc_include_internal_audio_device=true\n${WEBRTCARGS})
+    set (WEBRTCARGS rtc_include_pulse_audio=true\n${WEBRTCARGS})
+  elseif (NOT WIN32)
     if (NOT PulseAudio_FOUND)
       set (WEBRTCARGS rtc_include_pulse_audio=false\n${WEBRTCARGS})
     endif()
@@ -100,7 +104,7 @@ if (NOT EXISTS ${WEBRTCROOT}/src/out/${CMAKE_BUILD_TYPE}/args.gn)
   # screen capture support
   find_package(PkgConfig QUIET)
   pkg_check_modules(GTK3 QUIET gtk+-3.0)
-  MESSAGE("GTK_FOUND = ${GTK3_FOUND}")
+  MESSAGE("GTK3_FOUND = ${GTK3_FOUND}")
   if(NOT GTK3_FOUND OR (WEBRTCDESKTOPCAPTURE STREQUAL "OFF"))
     set (WEBRTCARGS rtc_use_x11=false\nrtc_use_pipewire=false\n${WEBRTCARGS})
   endif()
@@ -149,6 +153,15 @@ add_definitions(-DOPENSSL_API_1_1 -DUSE_WEBSOCKET)
 target_link_libraries (${CMAKE_PROJECT_NAME} civetweb) 
 target_include_directories(civetweb PUBLIC civetweb/include) 
 
+# rtmp ?
+find_package(PkgConfig QUIET)
+pkg_check_modules(RTMP QUIET librtmp)
+MESSAGE("RTMP_FOUND = ${RTMP_FOUND}")
+if (RTMP_FOUND)
+  add_definitions(-DHAVE_RTMP)
+  target_link_libraries (${CMAKE_PROJECT_NAME} ${RTMP_LIBRARIES}) 
+endif()
+
 # compiler specific
 if (WIN32)
     # overide compilation flags
@@ -165,19 +178,22 @@ if (WIN32)
     # webrtc
     add_definitions(-DWEBRTC_WIN -EHsc -DNOMINMAX -D__PRETTY_FUNCTION__=__FUNCTION__ -D_HAS_ITERATOR_DEBUGGING=0)
     add_definitions(-DUSE_X11 -DHAVE_SOUND -D_WINSOCKAPI_)
-    target_link_libraries (${CMAKE_PROJECT_NAME} secur32 dmoguids wmcodecdspuuid strmiids msdmo winmm dxgi d3d11)
+    target_link_libraries (${CMAKE_PROJECT_NAME} secur32 dmoguids wmcodecdspuuid strmiids msdmo winmm dxgi d3d11 iphlpapi dwmapi)
 elseif (APPLE)
     add_definitions(-DNEED_XLOCALE_H=1)
     # webrtc
+    add_definitions(-DHAVE_SOUND)
     add_definitions(-DWEBRTC_MAC -DWEBRTC_POSIX -fno-rtti)
     # civetweb
     add_definitions(-DCRYPTO_LIB="libcrypto.so.1.1" -DSSL_LIB="libssl.so.1.1")
-    #target_link_libraries (${CMAKE_PROJECT_NAME} dl)
 
     find_library(CORE_FOUNDATION Foundation)
     find_library(APPLICATION_SERVICES ApplicationServices)
     find_library(CORE_SERVICES CoreServices)
-    target_link_libraries (${CMAKE_PROJECT_NAME} ${CORE_FOUNDATION} ${APPLICATION_SERVICES} ${CORE_SERVICES})
+    find_library(CORE_AUDIO CoreAudio)
+    find_library(AUDIO_TOOLBOX AudioToolBox)
+    target_link_libraries (${CMAKE_PROJECT_NAME} ${CORE_FOUNDATION} ${APPLICATION_SERVICES} ${CORE_SERVICES}
+                           ${CORE_AUDIO} ${AUDIO_TOOLBOX})
 else()
     # libv4l2cpp
     add_definitions(-DHAVE_V4L2)
@@ -210,11 +226,12 @@ include(GNUInstallDirs)
 set(PROJECT_NAME prometheus-cpp)
 add_subdirectory(prometheus-cpp/core EXCLUDE_FROM_ALL)
 target_link_libraries (${CMAKE_PROJECT_NAME} core)  
-target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC prometheus-cpp/core/include)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE prometheus-cpp/core/include)
 
 # live555helper 
+include_directories(${WEBRTCROOT}/src/third_party/boringssl/src/include)
 add_subdirectory(live555helper EXCLUDE_FROM_ALL)
-target_link_libraries (${CMAKE_PROJECT_NAME} liblive555helper) 
+target_link_libraries (${CMAKE_PROJECT_NAME} liblive555helper ${WEBRTCOBJS}/third_party/boringssl/${CMAKE_STATIC_LIBRARY_PREFIX}boringssl${CMAKE_STATIC_LIBRARY_SUFFIX}) 
 add_definitions(-DHAVE_LIVE555)
 
 # static link of libatomic on armv6l
