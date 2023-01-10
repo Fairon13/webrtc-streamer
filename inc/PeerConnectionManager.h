@@ -253,12 +253,6 @@ class PeerConnectionManager {
 			rtc::scoped_refptr<webrtc::PeerConnectionInterface> getPeerConnection() { return m_pc; };
 
 			// PeerConnectionObserver interface
-            virtual void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
-                auto track = transceiver->receiver()->track();
-                RTC_LOG(LS_ERROR) << "onTrack dir: " << transceiver->direction() << " type: " << transceiver->media_type() <<
-                " kind: " << track->kind() << " state: " << track->state() << " enabled: " << track->enabled();
-            }
-            /*
 			virtual void OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)    {
 				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__ << " nb video tracks:" << stream->GetVideoTracks().size();
 				webrtc::VideoTrackVector videoTracks = stream->GetVideoTracks();
@@ -276,7 +270,6 @@ class PeerConnectionManager {
 				m_videosink.reset();
 				m_audiosink.reset();
 			}
-            */
 			virtual void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel) {
 				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__;
 				m_remoteChannel = new DataChannelObserver(channel);
@@ -288,10 +281,10 @@ class PeerConnectionManager {
 			virtual void OnIceCandidate(const webrtc::IceCandidateInterface* candidate);
 			
 			virtual void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState state) {
-				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__ << " state:" << state << " peerid:" << m_peerid;				
+				RTC_LOG(LS_ERROR) << __PRETTY_FUNCTION__ << " SignalingState:" << state << " peerid:" << m_peerid;				
 			}
 			virtual void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState state) {
-				RTC_LOG(LS_INFO) << __PRETTY_FUNCTION__ << " state:" << state  << " peerid:" << m_peerid;
+				RTC_LOG(LS_INFO) << __PRETTY_FUNCTION__ << " IceConnectionState:" << state  << " peerid:" << m_peerid;
 				if ( (state == webrtc::PeerConnectionInterface::kIceConnectionFailed)
 				   ||(state == webrtc::PeerConnectionInterface::kIceConnectionClosed) )
 				{ 
@@ -304,7 +297,8 @@ class PeerConnectionManager {
 				}
 			}
 			
-			virtual void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState) {
+			virtual void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState state) {
+				RTC_LOG(LS_INFO) << __PRETTY_FUNCTION__ << " IceGatheringState:" << state  << " peerid:" << m_peerid;
 			}
 
 			uint64_t    getCreationTime() { return m_creationTime; }

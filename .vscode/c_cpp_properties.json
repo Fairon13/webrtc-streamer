@@ -7,10 +7,11 @@
                 "${workspaceFolder}/../webrtc/src",
                 "${workspaceFolder}/../webrtc/src/third_party/abseil-cpp",
                 "${workspaceFolder}/../webrtc/src/third_party/jsoncpp/source/include",
-                "${workspaceFolder}/../webrtc/src/third_party/jsoncpp/generated"
+                "${workspaceFolder}/../webrtc/src/third_party/jsoncpp/generated",
+                "${workspaceFolder}/../webrtc/src/third_party/libaom/source/libaom/third_party/libyuv/include"
             ],
-            "intelliSenseMode": "linux-gcc-x64",
-            "compilerPath": "/usr/bin/gcc",
+            "intelliSenseMode": "clang-x64",
+            "compilerPath": "/usr/bin/clang++-10",
             "cStandard": "gnu11",
             "cppStandard": "gnu++14"
         }

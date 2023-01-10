@@ -22,3 +22,4 @@ live
 /.vs/
 install_manifest.txt
 Makefile
+build

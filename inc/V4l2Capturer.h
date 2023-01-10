@@ -15,6 +15,9 @@
 #include "modules/video_coding/h264_sprop_parameter_sets.h"
 #include "rtc_base/logging.h"
 
+#include "libyuv/video_common.h"
+#include "libyuv/convert.h"
+
 #include "EncodedVideoFrameBuffer.h"
 
 #include "V4l2Capture.h"
@@ -28,6 +31,7 @@ public:
 		size_t width = 0;
 		size_t height = 0;
 		size_t fps = 0;
+		unsigned format = V4L2_PIX_FMT_H264;
 		if (opts.find("width") != opts.end())
 		{
 			width = std::stoi(opts.at("width"));
@@ -40,9 +44,14 @@ public:
 		{
 			fps = std::stoi(opts.at("fps"));
 		}
+		if (opts.find("format") != opts.end())
+		{
+			std::string fmt = opts.at("format");
+			format = v4l2_fourcc(fmt[0], fmt[1], fmt[2], fmt[3]);
+		}
 
 		std::unique_ptr<V4l2Capturer> capturer(new V4l2Capturer());
-		if (!capturer->Init(width, height, fps, videourl))
+		if (!capturer->Init(width, height, fps, format, videourl))
 		{
 			RTC_LOG(LS_WARNING) << "Failed to create V4l2Capturer(w = " << width
 								<< ", h = " << height << ", fps = " << fps
@@ -65,6 +74,7 @@ private:
 	bool Init(size_t width,
 			  size_t height,
 			  size_t fps,
+			  unsigned format,
 			  const std::string &videourl)
 	{
 		m_width = width;
@@ -74,13 +84,23 @@ private:
 		if (videourl.find("v4l2://") == 0) {
 			device = videourl.substr(strlen("v4l2://"));
 		}		
-		V4L2DeviceParameters param(device.c_str(), V4L2_PIX_FMT_H264, width, height, fps);
+		V4L2DeviceParameters param(device.c_str(), format, width, height, fps);
 		m_capture.reset(V4l2Capture::create(param));
 
 		bool ret = false;
 		if (m_capture) {
-			m_capturethread = std::thread(&V4l2Capturer::CaptureThread, this);
-			ret = true;
+			switch(format) {
+				case V4L2_PIX_FMT_H264: 
+					m_capturethread = std::thread(&V4l2Capturer::CaptureThread, this);
+					ret = true;
+					break;
+				case V4L2_PIX_FMT_MJPEG: 
+					m_capturethread = std::thread(&V4l2Capturer::CaptureThreadMJpeg, this);
+					ret = true;
+					break;
+				default:
+					break;
+			}
 		}
 
 		return ret;
@@ -143,6 +163,45 @@ private:
 					.build();
 
 				m_broadcaster.OnFrame(frame);
+			}
+		}
+	}
+
+	void CaptureThreadMJpeg()
+	{
+		fd_set fdset;
+		FD_ZERO(&fdset);
+		timeval tv;
+
+		while (!m_stop)
+		{
+			tv.tv_sec=1;
+			tv.tv_usec=0;	
+			if (m_capture->isReadable(&tv) > 0)
+			{
+				char* buffer = new char[m_capture->getBufferSize()];
+				int frameSize = m_capture->read(buffer,  m_capture->getBufferSize());
+
+				unsigned width = m_capture->getWidth();
+				unsigned height = m_capture->getHeight();
+
+				rtc::scoped_refptr<webrtc::I420Buffer> I420buffer = webrtc::I420Buffer::Create(width, height);
+
+				const int conversionResult = libyuv::ConvertToI420((const uint8_t *)buffer, frameSize,
+					I420buffer->MutableDataY(), I420buffer->StrideY(),
+					I420buffer->MutableDataU(), I420buffer->StrideU(),
+					I420buffer->MutableDataV(), I420buffer->StrideV(),
+					0, 0,
+					width, height,
+					I420buffer->width(), I420buffer->height(),
+					libyuv::kRotate0, libyuv::FOURCC_MJPG);
+						
+				if (conversionResult >= 0) {
+					webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
+					m_broadcaster.OnFrame(videoFrame);
+				} else {
+					RTC_LOG(LS_ERROR) << "V4l2MJpegCapturer: conversion error:" << conversionResult;
+				}
 			}
 		}
 	}
