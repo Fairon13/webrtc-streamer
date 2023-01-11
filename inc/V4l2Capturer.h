@@ -195,7 +195,8 @@ private:
 					width, height,
 					I420buffer->width(), I420buffer->height(),
 					libyuv::kRotate0, libyuv::FOURCC_MJPG);
-						
+				delete[] buffer;
+				
 				if (conversionResult >= 0) {
 					webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
 					m_broadcaster.OnFrame(videoFrame);
