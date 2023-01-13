@@ -82,6 +82,10 @@ It is possible to specify cmake parameters WEBRTCROOT & WEBRTCDESKTOPCAPTURE :
  - $WEBRTCROOT/src should contains source (default is $(pwd)/../webrtc) 
  - WEBRTCDESKTOPCAPTURE enabling desktop capture if available (default is ON) 
 
+Build WebRTC Streamer for arm64
+-------
+	cmake -DCMAKE_TOOLCHAIN_FILE=$PWD/arm64-linux-gnu.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_LIBRARY_ARCHITECTURE=aarch64-linux-gnu -DWEBRTCDESKTOPCAPTURE=OFF . && make -j 8
+
 Usage
 ===============
 	./webrtc-streamer [-H http port] [-S[embeded stun address]] -[v[v]]  [url1]...[urln]
