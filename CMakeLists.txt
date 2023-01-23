@@ -28,7 +28,7 @@ if(GIT_FOUND)
     EXECUTE_PROCESS(COMMAND ${GIT_EXECUTABLE} -C live555helper describe --tags --always --dirty OUTPUT_VARIABLE LIVEVERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
     set (VERSION "${VERSION} live555helper@${LIVEVERSION}")
 
-    set (VERSION "${VERSION} playaudio")
+    set (VERSION "${VERSION} playaudio v4l2_control")
 endif()
 add_definitions(-DVERSION=\"${VERSION}\")
 

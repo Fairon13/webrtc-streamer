@@ -1157,7 +1157,7 @@ PeerConnectionManager::PeerConnectionObserver *PeerConnectionManager::CreatePeer
 		config.servers.push_back(server);
 	}
 
-    //config.type = webrtc::PeerConnectionInterface::IceTransportsType::kRelay;
+    config.type = webrtc::PeerConnectionInterface::IceTransportsType::kRelay;
 
 	// Use example From https://soru.site/questions/51578447/api-c-webrtcyi-kullanarak-peerconnection-ve-ucretsiz-baglant-noktasn-serbest-nasl
 	int minPort = 0;
