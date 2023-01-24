@@ -1,7 +1,6 @@
 cmake_minimum_required (VERSION 3.0.0)
 project (webrtc-streamer)
 
-set (WEBRTCROOT "${CMAKE_CURRENT_SOURCE_DIR}/../webrtc" CACHE STRING "WEBRTC root directory")
 set (WEBRTCDESKTOPCAPTURE "ON" CACHE STRING "WEBRTC Desktop capture")
 if(NOT CMAKE_BUILD_TYPE)
 set (CMAKE_BUILD_TYPE "Release")
@@ -28,7 +27,7 @@ if(GIT_FOUND)
     EXECUTE_PROCESS(COMMAND ${GIT_EXECUTABLE} -C live555helper describe --tags --always --dirty OUTPUT_VARIABLE LIVEVERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
     set (VERSION "${VERSION} live555helper@${LIVEVERSION}")
 
-    set (VERSION "${VERSION} playaudio")
+    set (VERSION "${VERSION} playaudio v4l2_control")
 endif()
 add_definitions(-DVERSION=\"${VERSION}\")
 

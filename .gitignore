@@ -13,6 +13,8 @@ package-lock.json
 *.lib
 *.dir
 *.cmake
+!amd64-linux-gnu.cmake
+!arm64-linux-gnu.cmake
 *.ilk
 CMakeCache.txt
 CMakeFiles
