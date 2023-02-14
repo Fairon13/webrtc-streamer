@@ -1,8 +1,8 @@
 src/*.o*
 *.a
 *.tar.gz
-webrtc-streamer
-webrtc-streamer.exe
+webrtc-streamer*
+webrtc-streamer*.exe
 /node_modules/
 package-lock.json
 *.sln
@@ -15,6 +15,7 @@ package-lock.json
 *.cmake
 !amd64-linux-gnu.cmake
 !arm64-linux-gnu.cmake
+!arm-linux-gnueabihf.cmake
 *.ilk
 CMakeCache.txt
 CMakeFiles
