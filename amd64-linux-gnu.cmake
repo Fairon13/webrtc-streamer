@@ -1,3 +1,4 @@
+cmake_minimum_required (VERSION 3.13.0)
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR amd64)
 

@@ -31,7 +31,7 @@ public:
 		size_t width = 0;
 		size_t height = 0;
 		size_t fps = 0;
-		unsigned format = V4L2_PIX_FMT_H264;
+		uint32_t format = V4L2_PIX_FMT_H264;
 		if (opts.find("width") != opts.end())
 		{
 			width = std::stoi(opts.at("width"));
@@ -74,7 +74,7 @@ private:
 	bool Init(size_t width,
 			  size_t height,
 			  size_t fps,
-			  unsigned format,
+			  uint32_t format,
 			  const std::string &videourl)
 	{
 		m_width = width;
@@ -87,23 +87,18 @@ private:
 		V4L2DeviceParameters param(device.c_str(), format, width, height, fps);
 		m_capture.reset(V4l2Capture::create(param));
 
-		bool ret = false;
 		if (m_capture) {
 			switch(format) {
-				case V4L2_PIX_FMT_H264: 
+				case V4L2_PIX_FMT_H264:
 					m_capturethread = std::thread(&V4l2Capturer::CaptureThread, this);
-					ret = true;
-					break;
-				case V4L2_PIX_FMT_MJPEG: 
-					m_capturethread = std::thread(&V4l2Capturer::CaptureThreadMJpeg, this);
-					ret = true;
 					break;
 				default:
+					m_capturethread = std::thread(&V4l2Capturer::CaptureThreadOther, this, format);
 					break;
 			}
 		}
 
-		return ret;
+		return true;
 	}
 
 	void CaptureThread()
@@ -167,7 +162,7 @@ private:
 		}
 	}
 
-	void CaptureThreadMJpeg()
+	void CaptureThreadOther(uint32_t format)
 	{
 		fd_set fdset;
 		FD_ZERO(&fdset);
@@ -194,14 +189,14 @@ private:
 					0, 0,
 					width, height,
 					I420buffer->width(), I420buffer->height(),
-					libyuv::kRotate0, libyuv::FOURCC_MJPG);
+					libyuv::kRotate0, format);
 				delete[] buffer;
 				
 				if (conversionResult >= 0) {
 					webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
 					m_broadcaster.OnFrame(videoFrame);
 				} else {
-					RTC_LOG(LS_ERROR) << "V4l2MJpegCapturer: conversion error:" << conversionResult;
+					RTC_LOG(LS_ERROR) << "V4l2Capturer: conversion error: " << conversionResult;
 				}
 			}
 		}
