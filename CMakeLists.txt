@@ -5,7 +5,7 @@ set (WEBRTCDESKTOPCAPTURE "ON" CACHE STRING "WEBRTC Desktop capture")
 if(NOT CMAKE_BUILD_TYPE)
 set (CMAKE_BUILD_TYPE "Release")
 endif()
-MESSAGE("CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}\nWEBRTCROOT = ${WEBRTCROOT}\nWEBRTCDESKTOPCAPTURE= ${WEBRTCDESKTOPCAPTURE}\nCMAKE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}")
+MESSAGE("CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}\nTAG_VERSION = ${TAG_VERSION}\nWEBRTCROOT = ${WEBRTCROOT}\nWEBRTCDESKTOPCAPTURE= ${WEBRTCDESKTOPCAPTURE}\nCMAKE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}")
 
 set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 set (CMAKE_CXX_STANDARD 17)
@@ -28,6 +28,10 @@ if(GIT_FOUND)
     set (VERSION "${VERSION} live555helper@${LIVEVERSION}")
 
     set (VERSION "${VERSION} playaudio v4l2_control")
+
+    if(TAG_VERSION)
+    set (VERSION "${TAG_VERSION} ${VERSION}")
+    endif()
 endif()
 add_definitions(-DVERSION=\"${VERSION}\")
 
@@ -230,6 +234,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE prometheus-cpp/core/inc
 
 # live555helper 
 include_directories(${WEBRTCROOT}/src/third_party/boringssl/src/include)
+add_definitions(-DNO_STD_LIB)
 add_subdirectory(live555helper EXCLUDE_FROM_ALL)
 target_link_libraries (${CMAKE_PROJECT_NAME} liblive555helper ${WEBRTCOBJS}/third_party/boringssl/${CMAKE_STATIC_LIBRARY_PREFIX}boringssl${CMAKE_STATIC_LIBRARY_SUFFIX}) 
 add_definitions(-DHAVE_LIVE555)
