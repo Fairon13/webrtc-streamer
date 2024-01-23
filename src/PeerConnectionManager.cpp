@@ -673,7 +673,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 	{
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
 
-		if (!this->AddStreams(peerid, peerConnection.get(), videourl, audiourl, options))
+		if (!this->AddStreams(peerid, peerConnection.get(), videourl, audiourl, options) && audioplay.empty())
 		{
 			RTC_LOG(LS_WARNING) << "Can't add stream";
 		}
@@ -694,8 +694,8 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
         }
 
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
-		rtcoptions.offer_to_receive_video = 0;
-		rtcoptions.offer_to_receive_audio = 0;
+		rtcoptions.offer_to_receive_video = 1;
+		rtcoptions.offer_to_receive_audio = 1;
 		std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
 		rtc::scoped_refptr<CreateSessionDescriptionObserver> localSessionObserver(CreateSessionDescriptionObserver::Create(peerConnection, localpromise));
 		peerConnection->CreateOffer(localSessionObserver.get(), rtcoptions);
