@@ -320,7 +320,16 @@ class PeerConnectionManager {
 	};
 
 	public:
-		PeerConnectionManager(const std::list<std::string> & iceServerList, const Json::Value & config, webrtc::AudioDeviceModule::AudioLayer audioLayer, const std::string& publishFilter, const std::string& webrtcUdpPortRange, bool useNullCodec = true, bool usePlanB = true, int maxpc = 0);
+		PeerConnectionManager(
+			const std::list<std::string> & iceServerList, 
+			const Json::Value & config,
+			webrtc::AudioDeviceModule::AudioLayer audioLayer, 	
+			const std::string& playbackDevice,
+			const std::string& captureDevice,
+			const std::string& publishFilter,
+			const std::string& webrtcUdpPortRange,
+			bool useNullCodec = true, bool usePlanB = false, int maxpc = 0
+			);
 		virtual ~PeerConnectionManager();
 
 		bool InitializePeerConnection();

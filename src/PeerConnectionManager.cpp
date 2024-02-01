@@ -199,8 +199,16 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
 /* ---------------------------------------------------------------------------
 **  Constructor
 ** -------------------------------------------------------------------------*/
-PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceServerList, const Json::Value & config, const webrtc::AudioDeviceModule::AudioLayer audioLayer, const std::string &publishFilter, const std::string & webrtcUdpPortRange, bool useNullCodec, bool usePlanB, int maxpc)
-	: m_signalingThread(rtc::Thread::Create()),
+PeerConnectionManager::PeerConnectionManager(
+	const std::list<std::string> &iceServerList, 
+	const Json::Value & config, 
+	const webrtc::AudioDeviceModule::AudioLayer audioLayer,
+	const std::string &playbackDevice,
+	const std::string &captureDevice,
+	const std::string &publishFilter, 
+	const std::string & webrtcUdpPortRange, 
+	bool useNullCodec, bool usePlanB, int maxpc
+	) : m_signalingThread(rtc::Thread::Create()),
 	  m_workerThread(rtc::Thread::Create()),
 	  m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory()), 
 	  m_task_queue_factory(webrtc::CreateDefaultTaskQueueFactory()),
@@ -232,8 +240,8 @@ PeerConnectionManager::PeerConnectionManager(const std::list<std::string> &iceSe
 
     // init ADM
     m_audioDeviceModule->Init();
-    m_audioDeviceModule->SetPlayoutDevice(0);
-    m_audioDeviceModule->SetRecordingDevice(0);
+	CapturerFactory::SetAudioCaptureDevice(captureDevice, m_audioDeviceModule);
+	CapturerFactory::SetAudioPlaybackDevice(playbackDevice, m_audioDeviceModule);
 
 	// register api in http server
 	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
@@ -672,6 +680,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 	else
 	{
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection = peerConnectionObserver->getPeerConnection();
+		m_audioDeviceModule->Init();
 
 		if (!this->AddStreams(peerid, peerConnection.get(), videourl, audiourl, options) && audioplay.empty())
 		{

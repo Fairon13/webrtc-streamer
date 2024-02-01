@@ -59,6 +59,9 @@ int main(int argc, char* argv[])
 	std::string authDomain = "mydomain.com";
 	bool        disableXframeOptions = false;
 
+	std::string captureDevice;
+	std::string playbackDevice;
+
 	std::string publishFilter(".*");
 	Json::Value config;  
 	bool        useNullCodec = false;
@@ -77,7 +80,7 @@ int main(int argc, char* argv[])
 
 	std::string streamName;
 	int c = 0;
-	while ((c = getopt (argc, argv, "hVv::C:" "c:H:w:N:A:D:Xm:" "T::t:S::s::R:W:" "a::q:ob" "n:u:U:")) != -1)
+	while ((c = getopt (argc, argv, "hVv::C:" "c:H:w:N:A:D:Xm:" "T::t:S::s::R:W:" "a::r:p:q:ob" "n:u:U:")) != -1)
 	{
 		switch (c)
 		{
@@ -102,6 +105,9 @@ int main(int argc, char* argv[])
 			case 'o': useNullCodec = true; break;
 			case 'b': usePlanB = true; break;
 				
+			case 'r': captureDevice = optarg; break;
+			case 'p': playbackDevice = optarg; break;
+
 			case 'C': {
 				std::ifstream stream(optarg);
 				stream >> config;
@@ -159,9 +165,11 @@ int main(int argc, char* argv[])
 				std::cout << "\t -R Udp_port_min:Udp_port_min       : Set the webrtc udp port range (default:" << localWebrtcUdpPortRange << ")"         << std::endl;
 				std::cout << "\t -W webrtc_trials_fields            : Set the webrtc trials fields (default:" << webrtcTrialsFields << ")"               << std::endl;
 #ifdef HAVE_SOUND				
-				std::cout << "\t -a[audio layer]                    : spefify audio capture layer to use (default:" << audioLayer << ")"                 << std::endl;
+				std::cout << "\t -a[audio layer]                    : specify audio capture layer to use (default:" << audioLayer << ")"                 << std::endl;
+				std::cout << "\t -p[device name]                    : specify audio playback device name (default: empty)"                               << std::endl;
+				std::cout << "\t -r[device name]                    : specify audio capture  device name (default: empty)"                               << std::endl;
 #endif				
-				std::cout << "\t -q[filter]                         : spefify publish filter (default:" << publishFilter << ")"                          << std::endl;
+				std::cout << "\t -q[filter]                         : specify publish filter (default:" << publishFilter << ")"                          << std::endl;
 				std::cout << "\t -o                                 : use null codec (keep frame encoded)"                                               << std::endl;
 				std::cout << "\t -b                                 : use sdp plan-B (default use unifiedPlan)"                                          << std::endl;
 			
@@ -201,7 +209,7 @@ int main(int argc, char* argv[])
 	// init trials fields
 	webrtc::field_trial::InitFieldTrialsFromString(webrtcTrialsFields.c_str());
 
-	webRtcServer = new PeerConnectionManager(iceServerList, config["urls"], audioLayer, publishFilter, localWebrtcUdpPortRange, useNullCodec, usePlanB, maxpc);
+	webRtcServer = new PeerConnectionManager(iceServerList, config["urls"], audioLayer, playbackDevice, captureDevice, publishFilter, localWebrtcUdpPortRange, useNullCodec, usePlanB, maxpc);
 	if (!webRtcServer->InitializePeerConnection())
 	{
 		std::cout << "Cannot Initialize WebRTC server" << std::endl;

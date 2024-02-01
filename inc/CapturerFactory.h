@@ -277,19 +277,20 @@ class CapturerFactory {
 		if ( (audiourl.find("rtsp://") == 0) && (std::regex_match("rtsp://",publishFilter)) )
 		{
 #ifdef HAVE_LIVE555
-			audioDeviceModule->Terminate();
+			//audioDeviceModule->Terminate();
 			audioSource = RTSPAudioSource::Create(audioDecoderfactory, audiourl, opts);
 #endif
 		}
 		else if ( (audiourl.find("file://") == 0) && (std::regex_match("file://",publishFilter)) )
 		{
 #ifdef HAVE_LIVE555
-			audioDeviceModule->Terminate();
+			//audioDeviceModule->Terminate();
 			audioSource = FileAudioSource::Create(audioDecoderfactory, audiourl, opts);
 #endif
 		}
 		else if (std::regex_match("audiocap://",publishFilter))
 		{
+			/*
 			//audioDeviceModule->Init();
 			int16_t num_audioDevices = audioDeviceModule->RecordingDevices();
 			int16_t idx_audioDevice = -1;
@@ -321,35 +322,70 @@ class CapturerFactory {
 			if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
 			{
 				audioDeviceModule->SetRecordingDevice(idx_audioDevice);
-				cricket::AudioOptions opt;
-				audioSource = peer_connection_factory->CreateAudioSource(opt);
 			}
+			*/
+			cricket::AudioOptions opt;
+			audioSource = peer_connection_factory->CreateAudioSource(opt);
 		}
 		return audioSource;
 	}
 
-    static void SetAudioPlaybackDevice(const std::string &audioPlay, rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
-        int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();
-        int16_t idx_audioDevice = -1;
-        char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-        char id[webrtc::kAdmMaxGuidSize] = {0};
+    static void SetAudioCaptureDevice(const std::string &audioCapture, rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
+		int16_t idx_audioDevice = 0;
+		int16_t num_audioDevices = audioDeviceModule->RecordingDevices();
 
-        for (int i = 0; i < num_audioDevices; ++i)
-        {
-            if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
-            {
-                RTC_LOG(LS_INFO) << "audioplay:" << audioPlay << " idx_audioDevice:" << i << " " << name;
-                if (audioPlay == name)
-                {
-                    idx_audioDevice = i;
-                    break;
-                }
-            }
-        }
+		if(!audioCapture.empty()) {
+			idx_audioDevice = -1;			
+        	
+        	char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+        	char id[webrtc::kAdmMaxGuidSize] = {0};
 
-        RTC_LOG(LS_ERROR) << "audioplay:" << audioPlay << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
+			for (int i = 0; i < num_audioDevices; ++i)
+			{
+				if (audioDeviceModule->RecordingDeviceName(i, name, id) != -1)
+				{
+					RTC_LOG(LS_INFO) << "capture audio scan: \"" << name << "\", idx_audioDevice: " << i;
+					if (audioCapture == name)
+					{
+						idx_audioDevice = i;
+						break;
+					}
+				}
+			}
+		}
+
+        RTC_LOG(LS_ERROR) << "capture audio: \"" << audioCapture << "\", idx_audioDevice: " << idx_audioDevice << "/" << num_audioDevices;
         if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
         {
+            audioDeviceModule->SetRecordingDevice(idx_audioDevice);
+        }
+    }
+
+
+    static void SetAudioPlaybackDevice(const std::string &audioPlay, rtc::scoped_refptr<webrtc::AudioDeviceModule>   audioDeviceModule) {
+		int16_t idx_audioDevice = 0;
+        int16_t num_audioDevices = audioDeviceModule->PlayoutDevices();        
+
+		if(!audioPlay.empty()) {
+			char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+			char id[webrtc::kAdmMaxGuidSize] = {0};
+
+			for (int i = 0; i < num_audioDevices; ++i)
+			{
+				if (audioDeviceModule->PlayoutDeviceName(i, name, id) != -1)
+				{
+					RTC_LOG(LS_INFO) << "playback audio scan: \"" << name << "\", idx_audioDevice: " << i;
+					if (audioPlay == name)
+					{
+						idx_audioDevice = i;
+						break;
+					}
+				}
+			}
+		}
+
+        RTC_LOG(LS_ERROR) << "playback audio: \"" << audioPlay << "\", idx_audioDevice: " << idx_audioDevice << "/" << num_audioDevices;
+        if((idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices)) {
             audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
         }
     }
