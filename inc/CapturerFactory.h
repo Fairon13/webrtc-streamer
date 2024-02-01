@@ -320,7 +320,7 @@ class CapturerFactory {
 			RTC_LOG(LS_ERROR) << "audiourl:" << audiourl << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
 			if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
 			{
-				//audioDeviceModule->SetRecordingDevice(idx_audioDevice);
+				audioDeviceModule->SetRecordingDevice(idx_audioDevice);
 				cricket::AudioOptions opt;
 				audioSource = peer_connection_factory->CreateAudioSource(opt);
 			}
@@ -350,7 +350,7 @@ class CapturerFactory {
         RTC_LOG(LS_ERROR) << "audioplay:" << audioPlay << " idx_audioDevice:" << idx_audioDevice << "/" << num_audioDevices;
         if ( (idx_audioDevice >= 0) && (idx_audioDevice < num_audioDevices) )
         {
-            //audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
+            audioDeviceModule->SetPlayoutDevice(idx_audioDevice);
         }
     }
 };

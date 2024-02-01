@@ -686,6 +686,7 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 
 		// ask to create offer
         if(!audioplay.empty()) {
+			CapturerFactory::SetAudioPlaybackDevice(audioplay, m_audioDeviceModule);
             std::string streamLabel = this->sanitizeLabel("audio_stream_" + peerid);
             webrtc::RtpTransceiverInit init;
             init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
