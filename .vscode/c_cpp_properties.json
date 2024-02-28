@@ -11,10 +11,9 @@
                 "${workspaceFolder}/../webrtc/src/third_party/libaom/source/libaom/third_party/libyuv/include"
             ],
             "intelliSenseMode": "clang-x64",
-            "compilerPath": "/usr/bin/clang++-10",
+            "compilerPath": "/home/fairon/work/smart-chemodan/streamer/webrtc/src/third_party/llvm-build/Release+Asserts/bin/clang",
             "cStandard": "gnu11",
-            "cppStandard": "gnu++14",
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+            "cppStandard": "gnu++14"
         }
     ],
     "version": 4

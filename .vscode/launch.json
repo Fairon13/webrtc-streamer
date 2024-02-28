@@ -8,21 +8,34 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/webrtc-streamer",
-            "args": ["-vv", "-s-"],
+            "program": "${workspaceFolder}/webrtc-streamer",
+            "args": ["-H", "0.0.0.0:2000","-s-", "-a4", "-vvv", "-ttest:test@wssar.digitalsibur.ru:3478"],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
+            "cwd": "${fileDirname}",
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
-            "sourceFileMap": {"./../..": "${workspaceFolder}/../webrtc/src"},
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
                 }
             ]
+        },
+        {
+            "type": "cmake",
+            "request": "launch",
+            "name": "CMake: Configure project",
+            "cmakeDebugType": "configure",
+            "clean": false,
+            "configureAll": false
         }
+        
     ]
 }

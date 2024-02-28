@@ -239,9 +239,11 @@ PeerConnectionManager::PeerConnectionManager(
 	m_webrtcPortRange = webrtcUdpPortRange;
 
     // init ADM
-    m_audioDeviceModule->Init();
-	CapturerFactory::SetAudioCaptureDevice(captureDevice, m_audioDeviceModule);
-	CapturerFactory::SetAudioPlaybackDevice(playbackDevice, m_audioDeviceModule);
+    //m_audioDeviceModule->Init();
+	m_workerThread->BlockingCall([this, captureDevice, playbackDevice] {
+		CapturerFactory::SetAudioCaptureDevice(captureDevice, this->m_audioDeviceModule);
+		CapturerFactory::SetAudioPlaybackDevice(playbackDevice, this->m_audioDeviceModule);
+    });
 
 	// register api in http server
 	m_func["/api/getMediaList"] = [this](const struct mg_request_info *req_info, const Json::Value &in) -> HttpServerRequestHandler::httpFunctionReturn {
@@ -553,7 +555,10 @@ const Json::Value PeerConnectionManager::getAudioDeviceList()
 {
 	Json::Value value(Json::arrayValue);
 
-	const std::list<std::string> audioCaptureDevice = CapturerFactory::GetAudioCaptureDeviceList(m_publishFilter, m_audioDeviceModule);
+	//const std::list<std::string> audioCaptureDevice = CapturerFactory::GetAudioCaptureDeviceList(m_publishFilter, m_audioDeviceModule);
+	const std::list<std::string> audioCaptureDevice = m_workerThread->BlockingCall([this] {
+		return CapturerFactory::GetAudioCaptureDeviceList(this->m_publishFilter, this->m_audioDeviceModule);
+    });
 	for (const auto& audioDevice : audioCaptureDevice)
 	{
 		value.append(audioDevice);
@@ -569,7 +574,11 @@ const Json::Value PeerConnectionManager::getAudioPlaybackDeviceList()
 {
     Json::Value value(Json::arrayValue);
 
-    const std::list<std::string> audioPlaybackDevice = CapturerFactory::GetAudioPlaybackDeviceList(m_audioDeviceModule);
+    //const std::list<std::string> audioPlaybackDevice = CapturerFactory::GetAudioPlaybackDeviceList(m_audioDeviceModule);
+	const std::list<std::string> audioPlaybackDevice = m_workerThread->BlockingCall([this] {
+		return CapturerFactory::GetAudioPlaybackDeviceList(this->m_audioDeviceModule);
+    });
+
     for (const auto& audioDevice : audioPlaybackDevice)
     {
         value.append(audioDevice);
@@ -695,8 +704,11 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
 
 		// ask to create offer
         if(!audioplay.empty()) {
-			CapturerFactory::SetAudioPlaybackDevice(audioplay, m_audioDeviceModule);
-            std::string streamLabel = this->sanitizeLabel("audio_stream_" + peerid);
+			m_workerThread->BlockingCall([this, audioplay] {
+				CapturerFactory::SetAudioPlaybackDevice(audioplay, this->m_audioDeviceModule);
+			});
+
+            std::string streamLabel = this->sanitizeLabel("audio_input_stream_" + peerid);
             webrtc::RtpTransceiverInit init;
             init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
             init.stream_ids = {streamLabel};
@@ -704,8 +716,6 @@ const Json::Value PeerConnectionManager::createOffer(const std::string &peerid, 
         }
 
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions rtcoptions;
-		rtcoptions.offer_to_receive_video = 1;
-		rtcoptions.offer_to_receive_audio = 1;
 		std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
 		rtc::scoped_refptr<CreateSessionDescriptionObserver> localSessionObserver(CreateSessionDescriptionObserver::Create(peerConnection, localpromise));
 		peerConnection->CreateOffer(localSessionObserver.get(), rtcoptions);
@@ -1321,6 +1331,9 @@ bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerCo
 	// compute stream label removing space because SDP use label
 	//std::string streamLabel = this->sanitizeLabel(videourl + "|" + audiourl + "|" + optcapturer);
     std::string streamLabel = this->sanitizeLabel("media_stream_" + peerid);
+	webrtc::RtpTransceiverInit init;
+    init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
+    init.stream_ids = {streamLabel};
 
     bool existingStream = false;
 	{
@@ -1353,7 +1366,7 @@ bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerCo
 				else
 				{
 					rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track = m_peer_connection_factory->CreateVideoTrack(streamLabel + "_video", videoSource.get());
-					if ((video_track) && (!peer_connection->AddTrack(video_track, {streamLabel}).ok()))
+					if ((video_track) && (!peer_connection->AddTransceiver(video_track, init).ok()))
 					{
 						RTC_LOG(LS_ERROR) << "Adding VideoTrack to MediaStream failed";
 					}
@@ -1372,7 +1385,7 @@ bool PeerConnectionManager::AddStreams(const std::string& peerid, webrtc::PeerCo
 				else
 				{
 					rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track = m_peer_connection_factory->CreateAudioTrack(streamLabel + "_audio", audioSource.get());
-					if ((audio_track) && (!peer_connection->AddTrack(audio_track, {streamLabel}).ok()))
+					if ((audio_track) && (!peer_connection->AddTransceiver(audio_track, init).ok()))
 					{
 						RTC_LOG(LS_ERROR) << "Adding AudioTrack to MediaStream failed";
 					} 

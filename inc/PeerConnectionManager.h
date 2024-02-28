@@ -65,7 +65,14 @@ class PeerConnectionManager {
 								int sample_rate,
 								size_t number_of_channels,
 								size_t number_of_frames) {
-				RTC_LOG(LS_VERBOSE) << __PRETTY_FUNCTION__ << "size:" << bits_per_sample << " format:" << sample_rate << "/" << number_of_channels << "/" << number_of_frames;
+				short* src = (short*) audio_data;
+				int sampleMin = 1000000, sampleMax = -1000000;
+				for(size_t i=0; i < number_of_frames; i++) {
+					sampleMin = std::min(sampleMin, (int) src[i]);
+					sampleMax = std::max(sampleMax, (int) src[i]);
+				}
+
+				RTC_LOG(LS_VERBOSE) << __PRETTY_FUNCTION__ << "size:" << bits_per_sample << " format:" << sample_rate << "/" << number_of_channels << "/" << number_of_frames << " min:" << sampleMin << " max:" << sampleMax;
 			}
 
 		protected:

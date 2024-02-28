@@ -2,8 +2,8 @@ cmake_minimum_required (VERSION 3.13.0)
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR armv7)
 
-set(CMAKE_SYSROOT "/home/fairon/work/smart-chemodan/streamer/webrtc/src/build/linux/debian_bullseye_arm-sysroot")
-set(tools "/home/fairon/work/smart-chemodan/streamer/webrtc/src/third_party/llvm-build/Release+Asserts")
+set(CMAKE_SYSROOT "${WEBRTCROOT}/src/build/linux/debian_bullseye_arm-sysroot")
+set(tools "${WEBRTCROOT}/src/third_party/llvm-build/Release+Asserts")
 
 set(triple arm-linux-gnueabihf)
 set(CMAKE_C_COMPILER ${tools}/bin/clang)
